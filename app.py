@@ -351,7 +351,7 @@ BASE_TEMPLATE = """
         function consultarCnpjCompleto(idCnpj, idNome, idContato, idEmail, idCep = null, idRua = null, idNum = null, idBairro = null, idCompl = null, idCidade = null) {
             let cnpjInput = document.getElementById(idCnpj);
             if(!cnpjInput) return;
-            let cnpj = cnpjInput.value.replace(/\D/g, '');
+            let cnpj = cnpjInput.value.replace(/\\D/g, '');
             if(cnpj.length !== 14) return;
 
             fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
@@ -375,7 +375,7 @@ BASE_TEMPLATE = """
         function consultarCep(idCep, idRua, idBairro, idCidade) {
             let cepInput = document.getElementById(idCep);
             if(!cepInput) return;
-            let cep = cepInput.value.replace(/\D/g, '');
+            let cep = cepInput.value.replace(/\\D/g, '');
             if(cep.length !== 8) return;
 
             fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`)
@@ -468,7 +468,7 @@ def entrada_recepcao():
         conn.execute("""INSERT INTO ordem_entrada 
                         (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_entrada) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                   (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_hoje))
+                     (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_hoje))
         conn.commit()
         conn.close()
         flash("Entrada na recepção registrada com sucesso!", "success")
@@ -1420,11 +1420,11 @@ def editar_os(id):
                         acessorios = ?, condicao = ?, status = ?, 
                         defeito = ?, diagnostico = ?, servico = ?, servicos_json = ?, peca_utilizada = ?, pecas_json = ?,
                         valor_pecas = ?, valor_servico = ?, valor = ? WHERE id = ?""",
-                   (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
-                    acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json,
-                    valor_pecas, valor_servico, valor_total, id))
+                     (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
+                      acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json,
+                      valor_pecas, valor_servico, valor_total, id))
         conn.execute("UPDATE boletos SET cliente = ?, valor = ? WHERE numero_documento = ?",
-                   (cliente, valor_total, f"OS-{id:04d}"))
+                     (cliente, valor_total, f"OS-{id:04d}"))
         conn.commit()
         conn.close()
         flash("Ordem de Serviço atualizada com sucesso!", "success")
@@ -1606,7 +1606,7 @@ def clientes():
 
         conn.execute("""INSERT INTO clientes (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                   (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf))
+                     (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf))
         conn.commit()
         conn.close()
         flash("Cliente cadastrado com sucesso!", "success")
@@ -1692,7 +1692,7 @@ def editar_cliente(id):
 
         conn.execute("""UPDATE clientes SET nome = ?, cpf_cnpj = ?, contato = ?, email = ?, 
                         cep = ?, rua = ?, numero = ?, bairro = ?, complemento = ?, cidade_uf = ? WHERE id = ?""",
-                   (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf, id))
+                     (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf, id))
         conn.commit()
         conn.close()
         flash("Cliente atualizado com sucesso!", "success")
@@ -1803,7 +1803,7 @@ def editar_servico(id):
         desc = request.form['descricao']
         valor = float(request.form['valor_padrao'] or 0)
         conn.execute("UPDATE servicos_cadastrados SET nome_servico = ?, descricao = ?, valor_padrao = ? WHERE id = ?",
-                   (nome, desc, valor, id))
+                     (nome, desc, valor, id))
         conn.commit()
         conn.close()
         flash("Serviço atualizado com sucesso!", "success")
@@ -1845,7 +1845,7 @@ def pecas():
         custo = float(request.form['valor_custo'] or 0)
         venda = float(request.form['valor_venda'] or 0)
         conn.execute("INSERT INTO pecas_estoque (nome_peca, codigo, quantidade, valor_custo, valor_venda) VALUES (?, ?, ?, ?, ?)",
-                   (nome, codigo, qtd, custo, venda))
+                     (nome, codigo, qtd, custo, venda))
         conn.commit()
         conn.close()
         flash("Peça cadastrada no estoque!", "success")
@@ -1912,7 +1912,7 @@ def editar_peca(id):
         custo = float(request.form['valor_custo'] or 0)
         venda = float(request.form['valor_venda'] or 0)
         conn.execute("UPDATE pecas_estoque SET nome_peca = ?, codigo = ?, quantidade = ?, valor_custo = ?, valor_venda = ? WHERE id = ?",
-                   (nome, codigo, qtd, custo, venda, id))
+                     (nome, codigo, qtd, custo, venda, id))
         conn.commit()
         conn.close()
         flash("Peça atualizada com sucesso!", "success")
@@ -1955,7 +1955,7 @@ def boletos():
         valor = float(request.form['valor'] or 0)
         venc = request.form['data_vencimento']
         conn.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, 'Gerado (Aguardando Pagamento)')",
-                   (cliente, doc, valor, venc))
+                     (cliente, doc, valor, venc))
         conn.commit()
         conn.close()
         flash("Boleto gerado com sucesso!", "success")
@@ -2022,7 +2022,7 @@ def editar_boleto(id):
         venc = request.form['data_vencimento']
         status = request.form['status']
         conn.execute("UPDATE boletos SET cliente = ?, numero_documento = ?, valor = ?, data_vencimento = ?, status = ? WHERE id = ?",
-                   (cliente, doc, valor, venc, status, id))
+                     (cliente, doc, valor, venc, status, id))
         conn.commit()
         conn.close()
         flash("Boleto atualizado com sucesso!", "success")
@@ -2083,7 +2083,7 @@ def nfs():
         cliente = request.form['cliente']
         valor = float(request.form['valor'] or 0)
         conn.execute("INSERT INTO notas_fiscais (numero_nf, cliente, valor, data_emissao, status) VALUES (?, ?, ?, ?, 'Emitida')",
-                   (num, cliente, valor, datetime.now().strftime("%Y-%m-%d")))
+                     (num, cliente, valor, datetime.now().strftime("%Y-%m-%d")))
         conn.commit()
         conn.close()
         flash("Nota Fiscal registrada!", "success")
@@ -2147,7 +2147,7 @@ def editar_nf(id):
         valor = float(request.form['valor'] or 0)
         status = request.form['status']
         conn.execute("UPDATE notas_fiscais SET numero_nf = ?, cliente = ?, valor = ?, status = ? WHERE id = ?",
-                   (num, cliente, valor, status, id))
+                     (num, cliente, valor, status, id))
         conn.commit()
         conn.close()
         flash("Nota Fiscal atualizada com sucesso!", "success")
@@ -2197,7 +2197,7 @@ def despesas():
         cat = request.form['categoria']
         valor = float(request.form['valor'] or 0)
         conn.execute("INSERT INTO despesas (descricao, categoria, valor, data_despesa) VALUES (?, ?, ?, ?)",
-                   (desc, cat, valor, datetime.now().strftime("%Y-%m-%d")))
+                     (desc, cat, valor, datetime.now().strftime("%Y-%m-%d")))
         conn.commit()
         conn.close()
         flash("Despesa registrada com sucesso!", "success")
@@ -2267,7 +2267,7 @@ def editar_despesa(id):
         cat = request.form['categoria']
         valor = float(request.form['valor'] or 0)
         conn.execute("UPDATE despesas SET descricao = ?, categoria = ?, valor = ? WHERE id = ?",
-                   (desc, cat, valor, id))
+                     (desc, cat, valor, id))
         conn.commit()
         conn.close()
         flash("Despesa atualizada com sucesso!", "success")
