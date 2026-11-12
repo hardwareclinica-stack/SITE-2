@@ -1,6 +1,0 @@
-database
-database.db
-__pycache__/
-*.pyc
-.env
-.git
