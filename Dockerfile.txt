@@ -1,18 +1,13 @@
-# Usa uma imagem oficial leve do Python
 FROM python:3.10-slim
 
-# Define o diretório de trabalho dentro do container
 WORKDIR /app
 
-# Copia e instala as dependências do projeto
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia todos os arquivos do projeto para dentro do container
 COPY . .
 
-# Expõe a porta padrão que o Google Cloud Run exige (8080)
-EXPOSE 8080
+# O Hugging Face exige a porta 7860
+EXPOSE 7860
 
-# Comando para rodar a aplicação usando o Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:7860", "app:app"]
