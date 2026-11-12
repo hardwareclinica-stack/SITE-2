@@ -1,21 +1,52 @@
 from flask import Flask, render_template_string, request, redirect, url_for, flash, jsonify
 import sqlite3
+import os
 import json
 from datetime import datetime
 import urllib.parse
 import smtplib
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 
 app = Flask(__name__)
-app.secret_key = 'sua_chave_secreta_super_segura'
+app.secret_key = 'clinica_hardware_secret_key'
 
-DB_NAME = 'database.db'
+# --- CONFIGURAÇÕES DE E-MAIL (GMAIL) ---
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SMTP_USER = "hardwareclinica@gmail.com"
+SMTP_PASSWORD = "qxyj lgfq marr sddo"  # Sua senha de app configurada
+
+def enviar_email_com_anexo_smtp(destinatario, assunto, corpo_html, pdf_bytes, nome_arquivo_pdf):
+    if not destinatario:
+        return False, "E-mail do cliente não informado."
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SMTP_USER
+        msg['To'] = destinatario
+        msg['Subject'] = assunto
+
+        # Corpo HTML do e-mail
+        msg.attach(MIMEText(corpo_html, 'html', 'utf-8'))
+
+        # Anexo PDF
+        if pdf_bytes:
+            parte_anexo = MIMEApplication(pdf_bytes, Name=nome_arquivo_pdf)
+            parte_anexo['Content-Disposition'] = f'attachment; filename="{nome_arquivo_pdf}"'
+            msg.attach(parte_anexo)
+
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_USER, destinatario, msg.as_string())
+        server.quit()
+        return True, "E-mail com anexo enviado com sucesso!"
+    except Exception as e:
+        return False, str(e)
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect("clinica_do_hardware.db")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -23,441 +54,435 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS ordens_servico (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cliente TEXT,
-        cpf_cnpj TEXT,
-        contato TEXT,
-        email_end TEXT,
-        tipo_equip TEXT,
-        marca TEXT,
-        equipamento TEXT,
-        ns_patrimonio TEXT,
-        acessorios TEXT,
-        condicao TEXT,
-        status TEXT,
-        defeito TEXT,
-        diagnostico TEXT,
-        servico TEXT,
-        servicos_json TEXT,
-        peca_utilizada TEXT,
-        pecas_json TEXT,
-        valor_pecas REAL,
-        valor_servico REAL,
-        valor REAL,
-        data_abertura TEXT
-    )
-    ''')
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS clientes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, 
+            nome TEXT, cpf_cnpj TEXT, contato TEXT, email TEXT, 
+            cep TEXT, rua TEXT, numero TEXT, bairro TEXT, complemento TEXT, cidade_uf TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS servicos_cadastrados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome_servico TEXT, descricao TEXT, valor_padrao REAL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS pecas_estoque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome_peca TEXT, codigo TEXT, quantidade INTEGER, valor_custo REAL, valor_venda REAL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ordem_entrada (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, cpf_cnpj TEXT, contato TEXT, email TEXT,
+            tipo_equip TEXT, marca TEXT, equipamento TEXT, ns_patrimonio TEXT,
+            acessorios TEXT, condicao TEXT, defeito TEXT, data_entrada TEXT
+        )
+    """)
+    try:
+        cursor.execute("ALTER TABLE ordem_entrada ADD COLUMN marca TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE ordem_entrada ADD COLUMN email TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS ordem_entrada (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cliente TEXT,
-        cpf_cnpj TEXT,
-        contato TEXT,
-        email TEXT,
-        tipo_equip TEXT,
-        marca TEXT,
-        equipamento TEXT,
-        ns_patrimonio TEXT,
-        acessorios TEXT,
-        condicao TEXT,
-        defeito TEXT,
-        data_entrada TEXT
-    )
-    ''')
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ordens_servico (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, cpf_cnpj TEXT, contato TEXT,
+            email_end TEXT, tipo_equip TEXT, equipamento TEXT, marca TEXT, ns_patrimonio TEXT,
+            acessorios TEXT, condicao TEXT, status TEXT DEFAULT 'Aguardando Aprovação',
+            defeito TEXT, diagnostico TEXT, servico TEXT, servicos_json TEXT, peca_utilizada TEXT, pecas_json TEXT, valor_pecas REAL, valor_servico REAL, 
+            valor REAL, foto_equip TEXT, data_abertura TEXT
+        )
+    """)
+    try:
+        cursor.execute("ALTER TABLE ordens_servico ADD COLUMN pecas_json TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE ordens_servico ADD COLUMN servicos_json TEXT")
+    except sqlite3.OperationalError:
+        pass
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS clientes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT,
-        cpf_cnpj TEXT,
-        contato TEXT,
-        email TEXT,
-        cep TEXT,
-        rua TEXT,
-        numero TEXT,
-        bairro TEXT,
-        complemento TEXT,
-        cidade_uf TEXT
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS servicos_cadastrados (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome_servico TEXT,
-        descricao TEXT,
-        valor_padrao REAL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS pecas_estoque (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome_peca TEXT,
-        codigo TEXT,
-        quantidade INTEGER,
-        valor_custo REAL,
-        valor_venda REAL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS boletos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cliente TEXT,
-        numero_documento TEXT,
-        valor REAL,
-        data_vencimento TEXT,
-        data_pagamento TEXT,
-        status TEXT
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS notas_fiscais (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        numero_nf TEXT,
-        cliente TEXT,
-        valor REAL,
-        data_emissao TEXT,
-        status TEXT
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS despesas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        descricao TEXT,
-        categoria TEXT,
-        valor REAL,
-        data_despesa TEXT
-    )
-    ''')
-
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS boletos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, cliente TEXT, numero_documento TEXT,
+            valor REAL, data_vencimento TEXT, data_pagamento TEXT, 
+            status TEXT DEFAULT 'Gerado (Aguardando Pagamento)'
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notas_fiscais (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, numero_nf TEXT, cliente TEXT,
+            valor REAL, data_emissao TEXT, status TEXT DEFAULT 'Emitida'
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS despesas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, descricao TEXT, categoria TEXT,
+            valor REAL, data_despesa TEXT, comprovante TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
 init_db()
-
-EMAIL_REMETENTE = "seu_email@gmail.com"
-EMAIL_SENHA = "sua_senha_de_app"
-
-def enviar_email_com_anexo_smtp(destinatario, assunto, corpo_html, pdf_bytes, nome_pdf):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_REMETENTE
-        msg['To'] = destinatario
-        msg['Subject'] = assunto
-
-        msg.attach(MIMEText(corpo_html, 'html'))
-
-        parte_anexo = MIMEBase('application', 'octet-stream')
-        parte_anexo.set_payload(pdf_bytes)
-        encoders.encode_base64(parte_anexo)
-        parte_anexo.add_header('Content-Disposition', f'attachment; filename="{nome_pdf}"')
-        msg.attach(parte_anexo)
-
-        servidor = smtplib.SMTP('smtp.gmail.com', 587)
-        servidor.starttls()
-        servidor.login(EMAIL_REMETENTE, EMAIL_SENHA)
-        servidor.sendmail(EMAIL_REMETENTE, destinatario, msg.as_string())
-        servidor.quit()
-        return True, "E-mail enviado com sucesso!"
-    except Exception as e:
-        return False, str(e)
 
 BASE_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Clínica do Hardware - Sistema de Gestão</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clínica do Hardware - ERP Integrado</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .sidebar { min-height: 100vh; background-color: #002060; color: #fff; position: fixed; top: 0; left: 0; width: 250px; z-index: 1000; box-shadow: 3px 0 10px rgba(0,0,0,0.1); }
-        .sidebar .brand { font-size: 1.2rem; font-weight: bold; padding: 20px; background-color: #00153f; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.1); }
-        .sidebar .nav-link { color: rgba(255,255,255,0.8); padding: 12px 20px; font-weight: 500; transition: all 0.3s; }
-        .sidebar .nav-link:hover, .sidebar .nav-link.active { background-color: #003399; color: #fff; border-left: 4px solid #ffc107; }
-        .sidebar .nav-link i { margin-right: 10px; width: 20px; text-align: center; }
-        .main-content { margin-left: 250px; padding: 30px; }
-        .header-custom { background: #fff; padding: 20px 30px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 30px; }
-        .card { border: none; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        body { background-color: #f8f9fa; }
+        .navbar-brand { font-weight: bold; color: #fff !important; }
+        .header-custom { background-color: #002060; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .card { box-shadow: 0 4px 6px rgba(0,0.1,0,0.1); border: none; }
     </style>
-</head>
-<body>
-    <div class="sidebar d-flex flex-column">
-        <div class="brand"><i class="fas fa-laptop-medical"></i> CLÍNICA DO HARDWARE</div>
-        <ul class="nav flex-column flex-grow-1 py-3">
-            <li class="nav-item"><a href="/" class="nav-link {% if active_tab == 'os' %}active{% endif %}"><i class="fas fa-clipboard-list"></i> Ordens de Serviço</a></li>
-            <li class="nav-item"><a href="/entrada" class="nav-link {% if active_tab == 'entrada' %}active{% endif %}"><i class="fas fa-sign-in-alt"></i> Entrada na Recepção</a></li>
-            <li class="nav-item"><a href="/clientes" class="nav-link {% if active_tab == 'clientes' %}active{% endif %}"><i class="fas fa-users"></i> Clientes</a></li>
-            <li class="nav-item"><a href="/servicos" class="nav-link {% if active_tab == 'servicos' %}active{% endif %}"><i class="fas fa-tools"></i> Serviços</a></li>
-            <li class="nav-item"><a href="/pecas" class="nav-link {% if active_tab == 'pecas' %}active{% endif %}"><i class="fas fa-boxes"></i> Peças / Estoque</a></li>
-            <li class="nav-item"><a href="/boletos" class="nav-link {% if active_tab == 'boletos' %}active{% endif %}"><i class="fas fa-credit-card"></i> Boletos</a></li>
-            <li class="nav-item"><a href="/nfs" class="nav-link {% if active_tab == 'nfs' %}active{% endif %}"><i class="fas fa-receipt"></i> Notas Fiscais</a></li>
-            <li class="nav-item"><a href="/despesas" class="nav-link {% if active_tab == 'despesas' %}active{% endif %}"><i class="fas fa-chart-line"></i> Despesas</a></li>
-            <li class="nav-item"><a href="/financeiro" class="nav-link {% if active_tab == 'financeiro' %}active{% endif %}"><i class="fas fa-chart-pie"></i> Painel Financeiro</a></li>
-        </ul>
-    </div>
-    <div class="main-content">
-        <div class="container-fluid">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
-                            {{ message }}
-                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            {% endwith %}
-            {% block content %}{% endblock %}
-        </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        let servicosDisponiveis = [];
-        let pecasDisponiveis = [];
-
-        function inicializarServicosDisponiveis(lista) { servicosDisponiveis = lista; }
-        function inicializarPecasDisponiveis(lista) { pecasDisponiveis = lista; }
-
-        function adicionarLinhaServico(nomeSelecionado = '', quantidadeVal = 1, valorUnitVal = 0) {
-            let container = document.getElementById('container-servicos');
-            let optionsHtml = '<option value="">-- Selecione o Serviço --</option>';
-            servicosDisponiveis.forEach(s => {
-                let sel = (s.nome_servico === nomeSelecionado) ? 'selected' : '';
-                optionsHtml += `<option value="${s.nome_servico}" data-valor="${s.valor_padrao}" ${sel}>${s.nome_servico} (R$ ${s.valor_padrao.toFixed(2)})</option>`;
-            });
-
-            let row = document.createElement('div');
-            row.className = 'row g-2 mb-2 align-items-center linha-servico';
-            row.innerHTML = `
-                <div class="col-md-6">
-                    <select class="form-select form-select-sm select-servico" onchange="atualizarValorServico(this)">
-                        ${optionsHtml}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <input type="number" class="form-control form-control-sm qtd-servico" value="${quantidadeVal}" min="1" placeholder="Qtd" oninput="recalcularTotais()">
-                </div>
-                <div class="col-md-3">
-                    <input type="number" step="0.01" class="form-control form-control-sm valor-servico" value="${valorUnitVal}" placeholder="Valor Unit. R$" oninput="recalcularTotais()">
-                </div>
-                <div class="col-md-1 text-end">
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.linha-servico').remove(); recalcularTotais();"><i class="fas fa-trash"></i></button>
-                </div>
-            `;
-            container.appendChild(row);
-            if(nomeSelecionado && valorUnitVal === 0) {
-                let select = row.querySelector('.select-servico');
-                atualizarValorServico(select);
-            }
-            recalcularTotais();
-        }
-
-        function atualizarValorServico(selectElem) {
-            let selectedOption = selectElem.options[selectElem.selectedIndex];
-            let valorPadrao = selectedOption.getAttribute('data-valor') || 0;
-            let row = selectElem.closest('.linha-servico');
-            let inputValor = row.querySelector('.valor-servico');
-            inputValor.value = parseFloat(valorPadrao).toFixed(2);
-            recalcularTotais();
-        }
-
-        function adicionarLinhaPeca(nomeSelecionado = '', quantidadeVal = 1, valorUnitVal = 0) {
-            let container = document.getElementById('container-pecas');
-            let optionsHtml = '<option value="">-- Selecione a Peça do Estoque --</option>';
-            pecasDisponiveis.forEach(p => {
-                let sel = (p.nome_peca === nomeSelecionado) ? 'selected' : '';
-                optionsHtml += `<option value="${p.nome_peca}" data-valor="${p.valor_venda}" data-estoque="${p.quantidade}" ${sel}>${p.nome_peca} (Estoque: ${p.quantidade} | R$ ${p.valor_venda.toFixed(2)})</option>`;
-            });
-
-            let row = document.createElement('div');
-            row.className = 'row g-2 mb-2 align-items-center linha-peca';
-            row.innerHTML = `
-                <div class="col-md-6">
-                    <select class="form-select form-select-sm select-peca" onchange="atualizarValorPeca(this)">
-                        ${optionsHtml}
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <input type="number" class="form-control form-control-sm qtd-peca" value="${quantidadeVal}" min="1" placeholder="Qtd" oninput="recalcularTotais()">
-                </div>
-                <div class="col-md-3">
-                    <input type="number" step="0.01" class="form-control form-control-sm valor-peca" value="${valorUnitVal}" placeholder="Valor Unit. R$" oninput="recalcularTotais()">
-                </div>
-                <div class="col-md-1 text-end">
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.linha-peca').remove(); recalcularTotais();"><i class="fas fa-trash"></i></button>
-                </div>
-            `;
-            container.appendChild(row);
-            if(nomeSelecionado && valorUnitVal === 0) {
-                let select = row.querySelector('.select-peca');
-                atualizarValorPeca(select);
-            }
-            recalcularTotais();
-        }
-
-        function atualizarValorPeca(selectElem) {
-            let selectedOption = selectElem.options[selectElem.selectedIndex];
-            let valorVenda = selectedOption.getAttribute('data-valor') || 0;
-            let row = selectElem.closest('.linha-peca');
-            let inputValor = row.querySelector('.valor-peca');
-            inputValor.value = parseFloat(valorVenda).toFixed(2);
-            recalcularTotais();
-        }
-
-        function recalcularTotais() {
-            let totalServicos = 0;
-            let servicosArray = [];
-            document.querySelectorAll('.linha-servico').forEach(row => {
-                let nome = row.querySelector('.select-servico').value;
-                let qtd = parseFloat(row.querySelector('.qtd-servico').value) || 0;
-                let valor = parseFloat(row.querySelector('.valor-servico').value) || 0;
-                if(nome) {
-                    totalServicos += qtd * valor;
-                    servicosArray.push({nome: nome, quantidade: qtd, valor_unitario: valor});
-                }
-            });
-
-            let totalPecas = 0;
-            let pecasArray = [];
-            document.querySelectorAll('.linha-peca').forEach(row => {
-                let nome = row.querySelector('.select-peca').value;
-                let qtd = parseFloat(row.querySelector('.qtd-peca').value) || 0;
-                let valor = parseFloat(row.querySelector('.valor-peca').value) || 0;
-                if(nome) {
-                    totalPecas += qtd * valor;
-                    pecasArray.push({nome: nome, quantidade: qtd, valor_unitario: valor});
-                }
-            });
-
-            document.getElementById('valor_servico_input').value = totalServicos.toFixed(2);
-            document.getElementById('valor_pecas_input').value = totalPecas.toFixed(2);
-            let totalGeral = totalServicos + totalPecas;
-            document.getElementById('valor_total_input').value = "R$ " + totalGeral.toFixed(2);
-
-            document.getElementById('servicos_json_input').value = JSON.stringify(servicosArray);
-            document.getElementById('pecas_json_input').value = JSON.stringify(pecasArray);
-        }
-
-        function consultarCnpjCompleto(idCnpj, idNome, idContato, idEmail, idCep = null, idRua = null, idNum = null, idBairro = null, idCompl = null, idCidade = null) {
-            let cnpjInput = document.getElementById(idCnpj);
-            if(!cnpjInput) return;
-            let cnpj = cnpjInput.value.replace(/\\D/g, '');
-            if(cnpj.length !== 14) return;
-
-            fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
-                .then(response => response.json())
-                .then(data => {
-                    if(!data.erro) {
-                        if(idNome) document.getElementById(idNome).value = data.razao_social || data.nome_fantasia || '';
-                        if(idContato) document.getElementById(idContato).value = data.ddd_telefone_1 || '';
-                        if(idEmail) document.getElementById(idEmail).value = data.email || '';
-                        if(idCep && data.cep) document.getElementById(idCep).value = data.cep;
-                        if(idRua && data.logradouro) document.getElementById(idRua).value = data.logradouro;
-                        if(idNum && data.numero) document.getElementById(idNum).value = data.numero;
-                        if(idBairro && data.bairro) document.getElementById(idBairro).value = data.bairro;
-                        if(idCompl && data.complemento) document.getElementById(idCompl).value = data.complemento;
-                        if(idCidade && data.municipio) document.getElementById(idCidade).value = data.municipio + ' / ' + (data.uf || '');
-                    }
-                })
-                .catch(err => console.error('Erro ao consultar CNPJ:', err));
-        }
-
-        function consultarCep(idCep, idRua, idBairro, idCidade) {
-            let cepInput = document.getElementById(idCep);
-            if(!cepInput) return;
-            let cep = cepInput.value.replace(/\\D/g, '');
-            if(cep.length !== 8) return;
-
-            fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`)
-                .then(response => response.json())
-                .then(data => {
-                    if(!data.erro) {
-                        if(idRua) document.getElementById(idRua).value = data.street || '';
-                        if(idBairro) document.getElementById(idBairro).value = data.neighborhood || '';
-                        if(idCidade) document.getElementById(idCidade).value = (data.city || '') + ' / ' + (data.state || '');
-                    }
-                })
-                .catch(err => console.error('Erro ao consultar CEP:', err));
-        }
-
-        function preencherDadosEntrada(selectElem) {
-            let opt = selectElem.options[selectElem.selectedIndex];
-            if(!opt.value) return;
-            document.getElementById('cliente_field').value = opt.getAttribute('data-cliente') || '';
-            document.getElementById('cpf_cnpj_field').value = opt.getAttribute('data-doc') || '';
-            document.getElementById('contato_field').value = opt.getAttribute('data-contato') || '';
-            document.getElementById('email_field').value = opt.getAttribute('data-email') || '';
-            
-            let tipo = document.querySelector('[name="tipo_equip"]'); if(tipo) tipo.value = opt.getAttribute('data-tipo') || '';
-            let marca = document.querySelector('[name="marca"]'); if(marca) marca.value = opt.getAttribute('data-marca') || '';
-            let equip = document.querySelector('[name="equipamento"]'); if(equip) equip.value = opt.getAttribute('data-equip') || '';
-            let ns = document.querySelector('[name="ns_patrimonio"]'); if(ns) ns.value = opt.getAttribute('data-ns') || '';
-            let acessorios = document.querySelector('[name="acessorios"]'); if(acessorios) acessorios.value = opt.getAttribute('data-acessorios') || '';
-            let condicao = document.querySelector('[name="condicao"]'); if(condicao) condicao.value = opt.getAttribute('data-condicao') || '';
-            let defeito = document.querySelector('[name="defeito"]'); if(defeito) defeito.value = opt.getAttribute('data-defeito') || '';
-        }
-
-        function filtrarTabela(inputId, tabelaId) {
-            let input = document.getElementById(inputId);
-            let filter = input.value.toLowerCase();
-            let table = document.getElementById(tabelaId);
-            let trs = table.getElementsByTagName('tr');
-
-            for (let i = 1; i < trs.length; i++) {
-                let tds = trs[i].getElementsByTagName('td');
-                let found = false;
-                for (let j = 0; j < tds.length; j++) {
-                    if (tds[j]) {
-                        if (tds[j].textContent.toLowerCase().indexOf(filter) > -1) {
-                            found = true;
-                            break;
+        function consultarCep(cepInputId, ruaId, bairroId, cidadeUfId) {
+            let cep = document.getElementById(cepInputId).value.replace(/\\D/g, '');
+            if (cep.length === 8) {
+                fetch(`https://viacep.com.br/ws/${cep}/json/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.erro) {
+                            if(document.getElementById(ruaId)) document.getElementById(ruaId).value = data.logradouro;
+                            if(document.getElementById(bairroId)) document.getElementById(bairroId).value = data.bairro;
+                            if(document.getElementById(cidadeUfId)) document.getElementById(cidadeUfId).value = data.localidade + ' / ' + data.uf;
+                        } else {
+                            alert("CEP não encontrado.");
                         }
-                    }
-                }
-                trs[i].style.display = found ? '' : 'none';
+                    }).catch(err => console.log("Erro ao buscar CEP:", err));
             }
         }
 
-        function alterarStatusRapido(id, novoStatus) {
-            fetch(`/os/status_rapido/${id}`, {
+        function consultarCnpjCompleto(cnpjInputId, nomeId, contatoId, emailId = null, cepId = null, ruaId = null, numId = null, bairroId = null, complId = null, cidadeId = null) {
+            let cnpj = document.getElementById(cnpjInputId).value.replace(/\\D/g, '');
+            if (cnpj.length === 14) {
+                fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.message) {
+                            if(document.getElementById(nomeId)) document.getElementById(nomeId).value = data.razao_social || data.nome_fantasia || '';
+                            if(contatoId && document.getElementById(contatoId)) document.getElementById(contatoId).value = data.ddd_telefone_1 ? `(${data.ddd_telefone_1.slice(0,2)}) ${data.ddd_telefone_1.slice(2)}` : '';
+                            if(emailId && document.getElementById(emailId)) document.getElementById(emailId).value = data.email || '';
+                            if(cepId && document.getElementById(cepId)) document.getElementById(cepId).value = data.cep ? data.cep.replace(/\\D/g, '') : '';
+                            if(ruaId && document.getElementById(ruaId)) document.getElementById(ruaId).value = data.logradouro || '';
+                            if(numId && document.getElementById(numId)) document.getElementById(numId).value = data.numero || '';
+                            if(bairroId && document.getElementById(bairroId)) document.getElementById(bairroId).value = data.bairro || '';
+                            if(complId && document.getElementById(complId)) document.getElementById(complId).value = data.complemento || '';
+                            if(cidadeId && document.getElementById(cidadeId)) document.getElementById(cidadeId).value = (data.municipio && data.uf) ? data.municipio + ' / ' + data.uf : '';
+                        } else {
+                            alert("CNPJ não encontrado na base de dados.");
+                        }
+                    }).catch(err => console.log("Erro ao buscar CNPJ:", err));
+            }
+        }
+
+        function alterarStatusRapido(osId, novoStatus) {
+            fetch(`/os/status_rapido/${osId}`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({status: novoStatus})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: novoStatus })
             })
-            .then(res => res.json())
+            .then(response => response.json())
             .then(data => {
                 if(data.sucesso) {
                     location.reload();
                 } else {
-                    alert('Erro ao atualizar status.');
+                    alert("Erro ao atualizar status.");
+                }
+            })
+            .catch(err => console.log("Erro:", err));
+        }
+
+        function selecionarClienteCadastrado(selectObj) {
+            let opt = selectObj.options[selectObj.selectedIndex];
+            if(opt.value) {
+                document.getElementById('cliente_input').value = opt.getAttribute('data-nome') || '';
+                document.getElementById('cpf_cnpj_input').value = opt.getAttribute('data-doc') || '';
+                document.getElementById('contato_input').value = opt.getAttribute('data-contato') || '';
+                if(document.getElementById('email_input')) {
+                    document.getElementById('email_input').value = opt.getAttribute('data-email') || '';
+                }
+            }
+        }
+
+        let listaServicosDisponiveis = [];
+        let listaPecasEstoque = [];
+
+        function inicializarServicosDisponiveis(servicosJson) {
+            listaServicosDisponiveis = servicosJson;
+        }
+
+        function inicializarPecasDisponiveis(pecasJson) {
+            listaPecasEstoque = pecasJson;
+        }
+
+        function adicionarLinhaServico(servicoNome = "", qtd = 1, valorUnit = 0) {
+            let container = document.getElementById('container-servicos');
+            let divId = 'servico_row_' + Date.now() + Math.random().toString(36).substring(2, 5);
+            
+            let optionsHtml = "<option value=''>-- Selecione um serviço --</option>";
+            listaServicosDisponiveis.forEach(s => {
+                let sel = (s.nome_servico === servicoNome) ? "selected" : "";
+                optionsHtml += `<option value="${s.nome_servico}" data-valor="${s.valor_padrao}" ${sel}>${s.nome_servico} (R$ ${s.valor_padrao.toFixed(2)})</option>`;
+            });
+
+            let htmlRow = `
+                <div class="row g-2 align-items-center mb-2 servico-item-row" id="${divId}">
+                    <div class="col-md-7">
+                        <select class="form-select servico-select" onchange="atualizarValorServicosTotal()">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="input-group">
+                            <span class="input-group-text small">Qtd</span>
+                            <input type="number" class="form-control servico-qtd" value="${qtd}" min="1" oninput="atualizarValorServicosTotal()">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" class="btn btn-danger btn-sm w-100" onclick="removerLinhaServico('${divId}')"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', htmlRow);
+            atualizarValorServicosTotal();
+        }
+
+        function removerLinhaServico(divId) {
+            let elem = document.getElementById(divId);
+            if(elem) {
+                elem.remove();
+                atualizarValorServicosTotal();
+            }
+        }
+
+        function atualizarValorServicosTotal() {
+            let rows = document.querySelectorAll('.servico-item-row');
+            let totalServicos = 0;
+            let servicosResumoArr = [];
+
+            rows.forEach(row => {
+                let sel = row.querySelector('.servico-select');
+                let qtdInput = row.querySelector('.servico-qtd');
+                if(sel && sel.value) {
+                    let opt = sel.options[sel.selectedIndex];
+                    let vUnit = parseFloat(opt.getAttribute('data-valor')) || 0;
+                    let qtd = parseInt(qtdInput.value) || 1;
+                    totalServicos += (vUnit * qtd);
+                    servicosResumoArr.push({nome: sel.value, quantidade: qtd, valor_unitario: vUnit});
                 }
             });
+
+            document.getElementById('valor_servico_input').value = totalServicos.toFixed(2);
+            document.getElementById('servicos_json_input').value = JSON.stringify(servicosResumoArr);
+            calcularTotalOS();
+        }
+
+        function adicionarLinhaPeca(pecaNome = "", qtd = 1, valorUnit = 0) {
+            let container = document.getElementById('container-pecas');
+            let divId = 'peca_row_' + Date.now() + Math.random().toString(36).substring(2, 5);
+            
+            let optionsHtml = "<option value=''>-- Selecione uma peça --</option>";
+            listaPecasEstoque.forEach(p => {
+                let sel = (p.nome_peca === pecaNome) ? "selected" : "";
+                let vUnit = p.valor_venda;
+                optionsHtml += `<option value="${p.nome_peca}" data-valor="${vUnit}" ${sel}>${p.nome_peca} (Estq: ${p.quantidade} | R$ ${vUnit.toFixed(2)})</option>`;
+            });
+
+            let htmlRow = `
+                <div class="row g-2 align-items-center mb-2 peca-item-row" id="${divId}">
+                    <div class="col-md-7">
+                        <select class="form-select peca-select" onchange="atualizarValorPecasTotal()">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="input-group">
+                            <span class="input-group-text small">Qtd</span>
+                            <input type="number" class="form-control peca-qtd" value="${qtd}" min="1" oninput="atualizarValorPecasTotal()">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" class="btn btn-danger btn-sm w-100" onclick="removerLinhaPeca('${divId}')"><i class="fas fa-trash"></i></button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', htmlRow);
+            atualizarValorPecasTotal();
+        }
+
+        function removerLinhaPeca(divId) {
+            let elem = document.getElementById(divId);
+            if(elem) {
+                elem.remove();
+                atualizarValorPecasTotal();
+            }
+        }
+
+        function atualizarValorPecasTotal() {
+            let rows = document.querySelectorAll('.peca-item-row');
+            let totalPecas = 0;
+            let pecasResumoArr = [];
+
+            rows.forEach(row => {
+                let sel = row.querySelector('.peca-select');
+                let qtdInput = row.querySelector('.peca-qtd');
+                if(sel && sel.value) {
+                    let opt = sel.options[sel.selectedIndex];
+                    let vUnit = parseFloat(opt.getAttribute('data-valor')) || 0;
+                    let qtd = parseInt(qtdInput.value) || 1;
+                    totalPecas += (vUnit * qtd);
+                    pecasResumoArr.push({nome: sel.value, quantidade: qtd, valor_unitario: vUnit});
+                }
+            });
+
+            document.getElementById('valor_pecas_input').value = totalPecas.toFixed(2);
+            document.getElementById('pecas_json_input').value = JSON.stringify(pecasResumoArr);
+            calcularTotalOS();
+        }
+
+        function calcularTotalOS() {
+            let vPecas = parseFloat(document.getElementById('valor_pecas_input').value) || 0;
+            let vServico = parseFloat(document.getElementById('valor_servico_input').value) || 0;
+            let total = vPecas + vServico;
+            let totalField = document.getElementById('valor_total_input');
+            if (totalField) {
+                totalField.value = total.toFixed(2);
+            }
+        }
+
+        function preencherDadosEntrada(selectObj) {
+            let opt = selectObj.options[selectObj.selectedIndex];
+            if(opt.value) {
+                document.getElementById('cliente_field').value = opt.getAttribute('data-cliente') || '';
+                document.getElementById('cpf_cnpj_field').value = opt.getAttribute('data-doc') || '';
+                document.getElementById('contato_field').value = opt.getAttribute('data-contato') || '';
+                if(document.getElementById('email_field')) {
+                    document.getElementById('email_field').value = opt.getAttribute('data-email') || '';
+                }
+                document.querySelector('input[name="tipo_equip"]').value = opt.getAttribute('data-tipo') || '';
+                document.querySelector('input[name="marca"]').value = opt.getAttribute('data-marca') || '';
+                document.querySelector('input[name="equipamento"]').value = opt.getAttribute('data-equip') || '';
+                document.querySelector('input[name="ns_patrimonio"]').value = opt.getAttribute('data-ns') || '';
+                document.querySelector('input[name="acessorios"]').value = opt.getAttribute('data-acessorios') || '';
+                document.querySelector('input[name="condicao"]').value = opt.getAttribute('data-condicao') || '';
+                document.querySelector('textarea[name="defeito"]').value = opt.getAttribute('data-defeito') || '';
+            }
+        }
+
+        function filtrarTabela(inputId, tableId) {
+            let input = document.getElementById(inputId);
+            let filter = input.value.toLowerCase();
+            let table = document.getElementById(tableId);
+            let tr = table.getElementsByTagName("tr");
+
+            for (let i = 1; i < tr.length; i++) {
+                let rowText = tr[i].textContent || tr[i].innerText;
+                if (rowText.toLowerCase().indexOf(filter) > -1) {
+                    tr[i].style.display = "";
+                } else {
+                    tr[i].style.display = "none";
+                }
+            }
+        }
+
+        function verificarOutroTipo(selectObj) {
+            let outroDiv = document.getElementById('outro_tipo_div');
+            let outroInput = document.getElementById('outro_tipo_input');
+            if (selectObj.value === 'Outros') {
+                outroDiv.style.display = 'block';
+                outroInput.required = true;
+            } else {
+                outroDiv.style.display = 'none';
+                outroInput.required = false;
+                outroInput.value = '';
+            }
+        }
+
+        function verificarOutraMarca(selectObj) {
+            let outroDiv = document.getElementById('outra_marca_div');
+            let outroInput = document.getElementById('outra_marca_input');
+            if (selectObj.value === 'Outros') {
+                outroDiv.style.display = 'block';
+                outroInput.required = true;
+            } else {
+                outroDiv.style.display = 'none';
+                outroInput.required = false;
+                outroInput.value = '';
+            }
         }
     </script>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/"><i class="fas fa-laptop-medical"></i> CLÍNICA DO HARDWARE</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'entrada' %}active{% endif %}" href="/entrada"><i class="fas fa-sign-in-alt text-info"></i> Entrada Equip.</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'os' %}active{% endif %}" href="/"><i class="fas fa-clipboard-list"></i> Ordens de Serviço</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'clientes' %}active{% endif %}" href="/clientes"><i class="fas fa-users"></i> Clientes</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'servicos' %}active{% endif %}" href="/servicos"><i class="fas fa-tools"></i> Serviços</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'pecas' %}active{% endif %}" href="/pecas"><i class="fas fa-boxes"></i> Peças / Estoque</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'boletos' %}active{% endif %}" href="/boletos"><i class="fas fa-credit-card"></i> Boletos</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'nfs' %}active{% endif %}" href="/nfs"><i class="fas fa-receipt"></i> Notas Fiscais</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'despesas' %}active{% endif %}" href="/despesas"><i class="fas fa-chart-line text-danger"></i> Despesas</a></li>
+                    <li class="nav-item"><a class="nav-link {% if active_tab == 'financeiro' %}active{% endif %}" href="/financeiro"><i class="fas fa-chart-pie text-success"></i> Painel & Gráficos</a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
 """
 
 @app.route('/entrada', methods=['GET', 'POST'])
-def entrada_recepcao():
+def ordem_entrada():
     conn = get_db_connection()
     if request.method == 'POST':
         cliente = request.form['cliente']
         cpf_cnpj = request.form['cpf_cnpj']
         contato = request.form['contato']
         email = request.form['email']
-        tipo_equip = request.form['tipo_equip']
-        marca = request.form['marca']
+        
+        tipo_equip_sel = request.form['tipo_equip']
+        tipo_equip = request.form['outro_tipo'] if tipo_equip_sel == 'Outros' else tipo_equip_sel
+
+        marca_sel = request.form['marca']
+        marca = request.form['outra_marca'] if marca_sel == 'Outros' else marca_sel
+
         equipamento = request.form['equipamento']
         ns_patrimonio = request.form['ns_patrimonio']
         acessorios = request.form['acessorios']
@@ -465,119 +490,555 @@ def entrada_recepcao():
         defeito = request.form['defeito']
         data_hoje = datetime.now().strftime("%Y-%m-%d")
 
-        conn.execute("""INSERT INTO ordem_entrada 
-                        (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_entrada) 
+        conn.execute("""INSERT INTO ordem_entrada (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_entrada)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                      (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_hoje))
         conn.commit()
         conn.close()
-        flash("Entrada na recepção registrada com sucesso!", "success")
-        return redirect(url_for('entrada_recepcao'))
+        flash("Entrada de equipamento registrada com sucesso!", "success")
+        return redirect(url_for('ordem_entrada'))
 
     lista_entradas = conn.execute("SELECT * FROM ordem_entrada ORDER BY id DESC").fetchall()
+    lista_clientes = conn.execute("SELECT * FROM clientes ORDER BY nome ASC").fetchall()
     conn.close()
-
-    linhas_tabela_entradas = "".join([
-        f"<tr>"
-        f"<td><strong>ENT-{e['id']:04d}</strong></td>"
-        f"<td>{e['cliente']}</td>"
-        f"<td>{e['tipo_equip']} {e['marca'] or ''} {e['equipamento']}</td>"
-        f"<td>{e['defeito'] or '-'}</td>"
-        f"<td>{e['data_entrada']}</td>"
-        f"<td>"
-        f"<a href='/os/nova_de_entrada/{e['id']}' class='btn btn-sm btn-success' title='Gerar Orçamento / O.S.'><i class='fas fa-file-invoice-dollar'></i> Gerar O.S.</a> "
-        f"<a href='/entrada/excluir/{e['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este registro de entrada?');\"><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for e in lista_entradas
-    ]) if lista_entradas else "<tr><td colspan='6' class='text-center text-muted'>Nenhum equipamento na recepção.</td></tr>"
+    
+    options_clientes = ""
+    for c in lista_clientes:
+        doc_str = f" ({c['cpf_cnpj']})" if c['cpf_cnpj'] else ""
+        options_clientes += f"<option value='{c['id']}' data-nome='{c['nome']}' data-doc='{c['cpf_cnpj'] or ''}' data-contato='{c['contato'] or ''}' data-email='{c['email'] or ''}'>{c['nome']}{doc_str}</option>"
 
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom">
-        <h2><i class="fas fa-sign-in-alt"></i> Recepção / Entrada de Equipamentos</h2>
-        <p class="mb-0">Registre o check-in do equipamento trazido pelo cliente.</p>
+        <h2><i class="fas fa-sign-in-alt"></i> Ordem de Entrada de Equipamentos (Check-in)</h2>
+        <p class="mb-0">Registre a chegada dos aparelhos para posterior conversão em Ordem de Serviço</p>
     </div>
-
+    
     <div class="card p-4 mb-4">
-        <h4>Novo Check-in de Recepção</h4>
+        <h4>Nova Entrada de Aparelho</h4>
         <form method="POST" class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label">Cliente / Razão Social:</label>
-                <input type="text" class="form-control" id="cliente_field" name="cliente" required>
+            <div class="col-md-12 p-3 bg-light border rounded mb-2">
+                <label class="form-label text-primary"><strong><i class="fas fa-users"></i> Selecionar Cliente Cadastrado (Opcional):</strong></label>
+                <select class="form-select border-primary" onchange="selecionarClienteCadastrado(this)">
+                    <option value="">-- Escolher um cliente já cadastrado ou digitar abaixo --</option>
+                    {options_clientes}
+                </select>
             </div>
             <div class="col-md-6">
-                <label class="form-label">CPF / CNPJ:</label>
-                <input type="text" class="form-control" id="cpf_cnpj_field" name="cpf_cnpj" placeholder="Digite o CNPJ" onblur="consultarCnpjCompleto('cpf_cnpj_field', 'cliente_field', 'contato_field', 'email_field')">
+                <label class="form-label">Nome do Cliente:</label>
+                <input type="text" class="form-control" id="cliente_input" name="cliente" placeholder="Nome do Cliente" required>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">CPF / CNPJ (Preenche tudo se CNPJ):</label>
+                <input type="text" class="form-control" id="cpf_cnpj_input" name="cpf_cnpj" placeholder="Digite o CPF ou CNPJ" onblur="consultarCnpjCompleto('cpf_cnpj_input', 'cliente_input', 'contato_input', 'email_input')">
             </div>
             <div class="col-md-6">
                 <label class="form-label">Contato (WhatsApp):</label>
-                <input type="text" class="form-control" id="contato_field" name="contato">
+                <input type="text" class="form-control" id="contato_input" name="contato" placeholder="Contato (WhatsApp)">
             </div>
             <div class="col-md-6">
                 <label class="form-label">E-mail do Cliente:</label>
-                <input type="email" class="form-control" id="email_field" name="email">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Tipo de Equipamento:</label>
-                <input type="text" class="form-control" name="tipo_equip" value="NOTEBOOK" required>
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Marca:</label>
-                <input type="text" class="form-control" name="marca" placeholder="Ex: Dell">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">Modelo:</label>
-                <input type="text" class="form-control" name="equipamento" placeholder="Ex: Inspiron 15" required>
+                <input type="email" class="form-control" id="email_input" name="email" placeholder="E-mail para envio">
             </div>
             <div class="col-md-6">
+                <label class="form-label">Tipo de Equipamento:</label>
+                <select class="form-select" id="tipo_equip_select" name="tipo_equip" onchange="verificarOutroTipo(this)" required>
+                    <option value="NOTEBOOK">NOTEBOOK</option>
+                    <option value="DESKTOP">DESKTOP</option>
+                    <option value="ALL IN ONE">ALL IN ONE</option>
+                    <option value="IMPRESSORA">IMPRESSORA</option>
+                    <option value="MONITOR">MONITOR</option>
+                    <option value="NO-BREAK">NO-BREAK</option>
+                    <option value="SMARTPHONE">SMARTPHONE</option>
+                    <option value="TABLET">TABLET</option>
+                    <option value="Outros">Outros</option>
+                </select>
+            </div>
+            <div class="col-md-6" id="outro_tipo_div" style="display: none;">
+                <label class="form-label text-danger">Especifique o Tipo de Equipamento:</label>
+                <input type="text" class="form-control" id="outro_tipo_input" name="outro_tipo" placeholder="Digite o tipo do equipamento">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Marca:</label>
+                <select class="form-select" id="marca_select" name="marca" onchange="verificarOutraMarca(this)" required>
+                    <option value="DELL">DELL</option>
+                    <option value="LENOVO">LENOVO</option>
+                    <option value="HP">HP</option>
+                    <option value="ACER">ACER</option>
+                    <option value="ASUS">ASUS</option>
+                    <option value="SAMSUNG">SAMSUNG</option>
+                    <option value="APPLE">APPLE</option>
+                    <option value="POSITIVO">POSITIVO</option>
+                    <option value="MULTILASER">MULTILASER</option>
+                    <option value="INTELBRAS">INTELBRAS</option>
+                    <option value="EPSON">EPSON</option>
+                    <option value="Outros">Outros</option>
+                </select>
+            </div>
+            <div class="col-md-6" id="outra_marca_div" style="display: none;">
+                <label class="form-label text-danger">Especifique a Marca:</label>
+                <input type="text" class="form-control" id="outra_marca_input" name="outra_marca" placeholder="Digite o nome da marca">
+            </div>
+            <div class="col-md-8">
+                <label class="form-label">Modelo do Equipamento:</label>
+                <input type="text" class="form-control" id="equipamento_input" name="equipamento" placeholder="Ex: Inspiron 15 / A515" required>
+            </div>
+            <div class="col-md-4">
                 <label class="form-label">Nº de Série / Patrimônio:</label>
-                <input type="text" class="form-control" name="ns_patrimonio">
+                <input type="text" class="form-control" id="ns_patrimonio_input" name="ns_patrimonio" placeholder="Nº de Série">
             </div>
             <div class="col-md-6">
                 <label class="form-label">Acessórios Deixados:</label>
-                <input type="text" class="form-control" name="acessorios" placeholder="Ex: Carregador, Bolsa">
+                <input type="text" class="form-control" id="acessorios_input" name="acessorios" placeholder="Ex: Carregador, Bolsa">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Condição Visual:</label>
+                <input type="text" class="form-control" id="condicao_input" name="condicao" placeholder="Ex: Arranhões na tampa">
             </div>
             <div class="col-md-12">
-                <label class="form-label">Condição Visual do Equipamento:</label>
-                <input type="text" class="form-control" name="condicao" placeholder="Ex: Riscos na tampa, sem parafusos traseiros">
+                <label class="form-label">Defeito Relatado pelo Cliente:</label>
+                <textarea class="form-control" id="defeito_input" name="defeito" placeholder="Defeito relatado" rows="2"></textarea>
             </div>
-            <div class="col-md-12">
-                <label class="form-label">Defeito Relatado:</label>
-                <textarea class="form-control" name="defeito" rows="2" placeholder="Descreva o problema relatado pelo cliente..."></textarea>
-            </div>
-            <div class="col-12 mt-4">
-                <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Registrar Entrada</button>
+            <div class="col-12">
+                <button type="submit" class="btn btn-info text-white"><i class="fas fa-save"></i> Registrar Entrada</button>
             </div>
         </form>
     </div>
 
     <div class="card p-3">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="mb-0">Equipamentos na Recepção (Pendentes de O.S.)</h4>
+            <h4 class="mb-0">Equipamentos na Recepção / Aguardando Orçamento</h4>
             <div style="width: 300px;">
-                <input type="text" id="filtroEntrada" class="form-control form-control-sm" placeholder="🔍 Filtrar entradas..." onkeyup="filtrarTabela('filtroEntrada', 'tabelaEntrada')">
+                <input type="text" id="filtroEntrada" class="form-control form-control-sm" placeholder="🔍 Filtrar registros..." onkeyup="filtrarTabela('filtroEntrada', 'tabelaEntrada')">
             </div>
         </div>
         <div class="table-responsive">
-            <table id="tabelaEntrada" class="table table-striped align-middle">
+            <table id="tabelaEntrada" class="table table-striped table-hover align-middle">
                 <thead class="table-dark">
                     <tr>
                         <th>Nº Entrada</th>
                         <th>Cliente</th>
-                        <th>Equipamento</th>
-                        <th>Defeito</th>
+                        <th>CPF/CNPJ</th>
+                        <th>Tipo / Marca / Modelo</th>
+                        <th>Defeito Relatado</th>
                         <th>Data</th>
-                        <th>Ações</th>
+                        <th>Ações / Envio</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {linhas_tabela_entradas}
+                    {''.join([f"<tr><td><strong>ENT-{e['id']:04d}</strong></td><td>" + str(e['cliente']) + f"</td><td>" + str(e['cpf_cnpj'] or '-') + f"</td><td><strong>" + str(e['tipo_equip']) + f"</strong> - " + str(e['marca'] or '') + f" " + str(e['equipamento']) + f"</td><td>" + str(e['defeito'] or '-') + f"</td><td>" + str(e['data_entrada']) + f"</td><td>" +
+                    f"<div class='btn-group btn-group-sm mb-1'>" +
+                    f"<a href='/entrada/imprimir/" + str(e['id']) + f"' class='btn btn-primary' target='_blank' title='2 Vias (Imprimir/PDF)'><i class='fas fa-print'></i> 2 Vias</a>" +
+                    f"<a href='/entrada/imprimir_via_unica/" + str(e['id']) + f"' class='btn btn-outline-primary' target='_blank' title='Via Única Cliente' style='background:#e7f1ff;'><i class='fas fa-file-alt'></i> Via Única</a>" +
+                    f"</div>" +
+                    f"<div class='btn-group btn-group-sm'>" +
+                    f"<a href='/entrada/enviar_email/" + str(e['id']) + f"' class='btn btn-warning' title='Enviar por E-mail (Gmail)'><i class='fas fa-envelope'></i></a>" +
+                    f"<a href='https://api.whatsapp.com/send?phone=55" + ''.join(filter(str.isdigit, str(e['contato'] or ''))) + f"&text=" + urllib.parse.quote(f"Olá *{e['cliente']}*, seu equipamento (*{e['tipo_equip']} {e['marca'] or ''} {e['equipamento']}*) deu entrada na Clínica do Hardware sob o nº *ENT-{e['id']:04d}*. Agradecemos a confiança!") + f"' target='_blank' class='btn btn-success' title='Enviar no WhatsApp'><i class='fab fa-whatsapp'></i></a>" +
+                    f"<a href='/os/nova_de_entrada/" + str(e['id']) + f"' class='btn btn-info text-white' title='Gerar O.S.'><i class='fas fa-file-invoice-dollar'></i></a>" +
+                    f"<a href='/entrada/excluir/" + str(e['id']) + f"' class='btn btn-danger' onclick=\"return confirm('Excluir este registro de entrada?')\" title='Excluir'><i class='fas fa-trash'></i></a>" +
+                    f"</div>" +
+                    f"</td></tr>" for e in lista_entradas]) if lista_entradas else "<tr><td colspan='7' class='text-center text-muted'>Nenhum equipamento na recepção.</td></tr>"}
                 </tbody>
             </table>
         </div>
     </div>
     """)
-    return render_template_string(html_page, active_tab='entrada')
+    return render_template_string(html_page, active_tab='entrada', lista=lista_entradas)
+
+def gerar_html_comprovante_entrada(e):
+    data_formatada = datetime.strptime(e['data_entrada'], "%Y-%m-%d").strftime("%d/%m/%Y") if e['data_entrada'] else ""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ordem de Entrada - ENT-{e['id']:04d}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 20px; }}
+            .box {{ border: 1px solid #002060; padding: 20px; border-radius: 6px; }}
+            .header {{ border-bottom: 2px solid #002060; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; }}
+            .section-title {{ background-color: #f0f4f8; border-left: 4px solid #002060; padding: 5px 10px; font-weight: bold; margin: 15px 0 10px 0; text-transform: uppercase; color: #002060; }}
+            p {{ margin: 4px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <div class="header">
+                <div>
+                    <h3 style="margin:0; color:#002060;">CLÍNICA DO HARDWARE</h3>
+                    <p style="margin:2px 0; font-size:10px; color:#666;">CNPJ: 70.017.290/0001-61 | Tel: (98) 9 8482-9705</p>
+                </div>
+                <div style="text-align: right;">
+                    <h4 style="margin:0; color:#d9534f;">COMPROVANTE DE ENTRADA</h4>
+                    <p style="margin:2px 0; font-weight:bold;">Nº ENT-{e['id']:04d}</p>
+                    <p style="margin:2px 0; font-size:10px;">Data: {data_formatada}</p>
+                </div>
+            </div>
+            <div class="section-title">01 Dados do Cliente</div>
+            <p><strong>Cliente:</strong> {e['cliente']}</p>
+            <p><strong>CPF/CNPJ:</strong> {e['cpf_cnpj'] or 'Não informado'}</p>
+            <p><strong>WhatsApp:</strong> {e['contato'] or 'Não informado'}</p>
+
+            <div class="section-title">02 Equipamento</div>
+            <p><strong>Tipo:</strong> {e['tipo_equip']} | <strong>Marca:</strong> {e['marca'] or '-'} | <strong>Modelo:</strong> {e['equipamento']}</p>
+            <p><strong>Nº de Série / Patrimônio:</strong> {e['ns_patrimonio'] or 'Não informado'}</p>
+            <p><strong>Acessórios:</strong> {e['acessorios'] or 'Nenhum'}</p>
+            <p><strong>Condição Visual:</strong> {e['condicao'] or 'Normal'}</p>
+
+            <div class="section-title">03 Defeito Relatado</div>
+            <p>{e['defeito'] or 'Não especificado'}</p>
+        </div>
+    </body>
+    </html>
+    """
+
+def gerar_html_os(os_item):
+    data_formatada = datetime.strptime(os_item['data_abertura'], "%Y-%m-%d").strftime("%d/%m/%Y") if os_item['data_abertura'] else ""
+    
+    itens_linhas_html = ""
+    try:
+        servicos_arr = json.loads(os_item['servicos_json']) if os_item['servicos_json'] else []
+    except:
+        servicos_arr = []
+
+    if servicos_arr:
+        for s in servicos_arr:
+            subtotal = s['quantidade'] * s['valor_unitario']
+            itens_linhas_html += f"<tr><td>Serviço</td><td>{s['nome']}</td><td style='text-align:center;'>{s['quantidade']}</td><td style='text-align:right;'>R$ {subtotal:.2f}</td></tr>"
+    elif os_item['servico']:
+        itens_linhas_html += f"<tr><td>Serviço</td><td>{os_item['servico']}</td><td style='text-align:center;'>1</td><td style='text-align:right;'>R$ {(os_item['valor_servico'] or 0.0):.2f}</td></tr>"
+
+    try:
+        pecas_arr = json.loads(os_item['pecas_json']) if os_item['pecas_json'] else []
+    except:
+        pecas_arr = []
+
+    if pecas_arr:
+        for p in pecas_arr:
+            subtotal = p['quantidade'] * p['valor_unitario']
+            itens_linhas_html += f"<tr><td>Peça</td><td>{p['nome']}</td><td style='text-align:center;'>{p['quantidade']}</td><td style='text-align:right;'>R$ {subtotal:.2f}</td></tr>"
+    elif os_item['peca_utilizada']:
+        itens_linhas_html += f"<tr><td>Peça</td><td>{os_item['peca_utilizada']}</td><td style='text-align:center;'>1</td><td style='text-align:right;'>R$ {(os_item['valor_pecas'] or 0.0):.2f}</td></tr>"
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>Ordem de Serviço - OS-{os_item['id']:04d}</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 20px; }}
+            .box {{ border: 1px solid #002060; padding: 20px; border-radius: 6px; }}
+            .header {{ border-bottom: 2px solid #002060; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; }}
+            .section-title {{ background-color: #f0f4f8; border-left: 4px solid #002060; padding: 5px 10px; font-weight: bold; margin: 15px 0 10px 0; text-transform: uppercase; color: #002060; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+            th, td {{ border: 1px solid #ddd; padding: 6px 8px; font-size: 11px; }}
+            th {{ background-color: #002060; color: white; }}
+            p {{ margin: 4px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <div class="header">
+                <div>
+                    <h3 style="margin:0; color:#002060;">CLÍNICA DO HARDWARE</h3>
+                    <p style="margin:2px 0; font-size:10px; color:#666;">CNPJ: 70.017.290/0001-61 | Tel: (98) 9 8482-9705</p>
+                </div>
+                <div style="text-align: right;">
+                    <h4 style="margin:0; color:#d9534f;">ORDEM DE SERVIÇO</h4>
+                    <p style="margin:2px 0; font-weight:bold;">Nº OS-{os_item['id']:04d}</p>
+                    <p style="margin:2px 0; font-size:10px;">Data: {data_formatada} | Status: {os_item['status']}</p>
+                </div>
+            </div>
+            <div class="section-title">01 Dados do Cliente</div>
+            <p><strong>Cliente:</strong> {os_item['cliente']}</p>
+            <p><strong>CPF/CNPJ:</strong> {os_item['cpf_cnpj'] or 'Não informado'}</p>
+            <p><strong>Contato:</strong> {os_item['contato'] or 'Não informado'} | <strong>E-mail:</strong> {os_item['email_end'] or 'Não informado'}</p>
+
+            <div class="section-title">02 Equipamento & Avaliação Técnica</div>
+            <p><strong>Tipo:</strong> {os_item['tipo_equip']} | <strong>Marca:</strong> {os_item['marca'] or '-'} | <strong>Modelo:</strong> {os_item['equipamento']}</p>
+            <p><strong>Nº Série / Patrimônio:</strong> {os_item['ns_patrimonio'] or 'Não informado'}</p>
+            <p><strong>Defeito Relatado:</strong> {os_item['defeito'] or '-'}</p>
+            <p><strong>Constatação / Diagnóstico:</strong> {os_item['diagnostico'] or 'Em análise'}</p>
+
+            <div class="section-title">03 Peças e Serviços</div>
+            <table>
+                <thead>
+                    <tr><th>Tipo</th><th>Descrição</th><th style="text-align:center;">Qtd</th><th style="text-align:right;">Total (R$)</th></tr>
+                </thead>
+                <tbody>
+                    {itens_linhas_html}
+                </tbody>
+            </table>
+            <p style="text-align: right; font-weight: bold; font-size: 14px; color: #002060; margin-top: 10px;">
+                TOTAL GERAL: R$ {(os_item['valor'] or 0.0):.2f}
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+
+@app.route('/entrada/imprimir/<int:id>')
+def imprimir_entrada(id):
+    conn = get_db_connection()
+    e = conn.execute("SELECT * FROM ordem_entrada WHERE id = ?", (id,)).fetchone()
+    conn.close()
+    if not e:
+        flash("Registro não encontrado.", "danger")
+        return redirect(url_for('ordem_entrada'))
+    
+    data_formatada = datetime.strptime(e['data_entrada'], "%Y-%m-%d").strftime("%d/%m/%Y") if e['data_entrada'] else ""
+
+    def gerar_via_entrada(tipo_via):
+        return f"""
+        <div class="via-box">
+            <div class="row header-print align-items-center">
+                <div class="col-8 d-flex align-items-center">
+                    <img src="/static/logo.png" alt="Logo" class="logo-img me-2" onerror="this.style.display='none'">
+                    <div>
+                        <h3 class="mb-1" style="font-weight: 900; color: #002060; font-size: 15px;">CLÍNICA DO HARDWARE</h3>
+                        <p class="mb-0 small text-muted" style="font-size: 10px;"><strong>CNPJ:</strong> 70.017.290/0001-61 | <strong>Tel:</strong> (98) 9 8482-9705</p>
+                    </div>
+                </div>
+                <div class="col-4 text-end">
+                    <span class="badge bg-secondary mb-1" style="font-size: 10px;">{tipo_via}</span>
+                    <h5 class="text-danger mb-0" style="font-weight: bold; font-size: 11px;">COMPROVANTE DE ENTRADA</h5>
+                    <h5 class="mb-0" style="color: #002060; font-size: 13px;"><strong>Nº ENT-{e['id']:04d}</strong></h5>
+                    <small class="text-muted" style="font-size: 10px;">Data: {data_formatada}</small>
+                </div>
+            </div>
+
+            <div class="section-title">01 DADOS DO CLIENTE</div>
+            <div class="row mb-1">
+                <div class="col-8"><p class="mb-1"><strong>Cliente / Razão social:</strong> {e['cliente']}</p></div>
+                <div class="col-4"><p class="mb-1"><strong>CPF/CNPJ:</strong> {e['cpf_cnpj'] or 'Não informado'}</p></div>
+                <div class="col-12"><p class="mb-0"><strong>Contato / WhatsApp:</strong> {e['contato'] or 'Não informado'}</p></div>
+            </div>
+
+            <div class="section-title">02 IDENTIFICAÇÃO DO EQUIPAMENTO</div>
+            <div class="row mb-1">
+                <div class="col-md-4"><p class="mb-1"><strong>Tipo:</strong> {e['tipo_equip']}</p></div>
+                <div class="col-md-4"><p class="mb-1"><strong>Marca:</strong> {e['marca'] or 'Não informada'}</p></div>
+                <div class="col-md-4"><p class="mb-1"><strong>Modelo:</strong> {e['equipamento']}</p></div>
+                <div class="col-md-6"><p class="mb-1"><strong>Nº de Série / Patrimônio:</strong> {e['ns_patrimonio'] or 'Não informado'}</p></div>
+                <div class="col-md-6"><p class="mb-1"><strong>Acessórios entregues:</strong> {e['acessorios'] or 'Nenhum'}</p></div>
+                <div class="col-12"><p class="mb-1"><strong>Condição visual:</strong> {e['condicao'] or 'Normal'}</p></div>
+            </div>
+
+            <div class="section-title">03 DEFEITO RELATADO</div>
+            <div class="row mb-1">
+                <div class="col-12">
+                    <p class="mb-0 p-1 bg-light border rounded" style="font-size: 11px;"><strong>Defeito relatado:</strong> {e['defeito'] or 'Não especificado'}</p>
+                </div>
+            </div>
+
+            <div class="footer-terms text-center">
+                <p class="mb-0"><strong>Termos:</strong> Orçamento sujeito à análise técnica (Prazo: até 48h). Não nos responsabilizamos por aparelhos deixados por mais de 90 dias.</p>
+            </div>
+
+            <div class="row mt-3 text-center">
+                <div class="col-6">
+                    <div style="border-top: 1px solid #000; width: 85%; margin: auto; padding-top: 2px; font-size: 10px;">Assinatura do Cliente</div>
+                </div>
+                <div class="col-6">
+                    <div style="border-top: 1px solid #000; width: 85%; margin: auto; padding-top: 2px; font-size: 10px;">Clínica do Hardware</div>
+                </div>
+            </div>
+        </div>
+        """
+
+    print_template = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>Comprovante de Entrada - ENT-{e['id']:04d}</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            body {{ background: #fff; color: #000; font-family: Arial, sans-serif; padding: 5px; font-size: 11px; }}
+            .via-box {{ padding: 10px 15px; background: #fff; height: 48vh; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; }}
+            .header-print {{ border-bottom: 2px solid #002060; padding-bottom: 6px; margin-bottom: 6px; }}
+            .section-title {{ background-color: #f0f4f8; border-left: 4px solid #002060; padding: 3px 6px; font-weight: bold; font-size: 11px; margin-top: 6px; margin-bottom: 4px; text-transform: uppercase; color: #002060; }}
+            .footer-terms {{ font-size: 9px; color: #555; background: #f9f9f9; padding: 4px; border: 1px solid #ddd; border-radius: 3px; margin-top: 6px; }}
+            .logo-img {{ max-height: 40px; max-width: 140px; object-fit: contain; }}
+            .linha-recorte {{ border-top: 2px dashed #666; margin: 5px 0; position: relative; text-align: center; }}
+            .linha-recorte span {{ background: #fff; padding: 0 10px; font-size: 10px; color: #666; position: relative; top: -9px; font-weight: bold; text-transform: uppercase; }}
+            @media print {{
+                .no-print {{ display: none !important; }}
+                body {{ padding: 0; margin: 0; }}
+                @page {{ size: A4; margin: 5mm; }}
+            }}
+        </style>
+    </head>
+    <body onload="window.print()">
+        {gerar_via_entrada("1ª VIA - CLIENTE")}
+        <div class="linha-recorte"><span>✂️ DESTACAR / RECORTAR AQUI ✂️</span></div>
+        {gerar_via_entrada("2ª VIA - EMPRESA")}
+
+        <div class="text-center mt-2 no-print">
+            <button onclick="window.print()" class="btn btn-primary btn-sm"><i class="fas fa-print"></i> Imprimir / Salvar PDF</button>
+            <a href="/entrada" class="btn btn-secondary btn-sm">Voltar</a>
+        </div>
+    </body>
+    </html>
+    """
+    return print_template
+
+@app.route('/entrada/imprimir_via_unica/<int:id>')
+def imprimir_entrada_via_unica(id):
+    conn = get_db_connection()
+    e = conn.execute("SELECT * FROM ordem_entrada WHERE id = ?", (id,)).fetchone()
+    conn.close()
+    if not e:
+        flash("Registro não encontrado.", "danger")
+        return redirect(url_for('ordem_entrada'))
+    
+    data_formatada = datetime.strptime(e['data_entrada'], "%Y-%m-%d").strftime("%d/%m/%Y") if e['data_entrada'] else ""
+
+    print_template = f"""
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <title>Comprovante de Entrada (Via Única) - ENT-{e['id']:04d}</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+        <style>
+            body {{ background: #fff; color: #000; font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }}
+            .via-box {{ padding: 15px 20px; background: #fff; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; max-width: 800px; margin: auto; }}
+            .header-print {{ border-bottom: 2px solid #002060; padding-bottom: 8px; margin-bottom: 10px; }}
+            .section-title {{ background-color: #f0f4f8; border-left: 4px solid #002060; padding: 4px 8px; font-weight: bold; font-size: 12px; margin-top: 10px; margin-bottom: 6px; text-transform: uppercase; color: #002060; }}
+            .footer-terms {{ font-size: 10px; color: #555; background: #f9f9f9; padding: 6px; border: 1px solid #ddd; border-radius: 3px; margin-top: 10px; }}
+            .logo-img {{ max-height: 45px; max-width: 150px; object-fit: contain; }}
+            @media print {{
+                .no-print {{ display: none !important; }}
+                body {{ padding: 0; margin: 0; }}
+                @page {{ size: A4; margin: 10mm; }}
+                .via-box {{ border: none; }}
+            }}
+        </style>
+    </head>
+    <body onload="window.print()">
+        <div class="via-box">
+            <div class="row header-print align-items-center">
+                <div class="col-8 d-flex align-items-center">
+                    <img src="/static/logo.png" alt="Logo" class="logo-img me-2" onerror="this.style.display='none'">
+                    <div>
+                        <h3 class="mb-1" style="font-weight: 900; color: #002060; font-size: 18px;">CLÍNICA DO HARDWARE</h3>
+                        <p class="mb-0 small text-muted" style="font-size: 11px;"><strong>CNPJ:</strong> 70.017.290/0001-61 | <strong>Tel:</strong> (98) 9 8482-9705</p>
+                    </div>
+                </div>
+                <div class="col-4 text-end">
+                    <span class="badge bg-primary mb-1" style="font-size: 11px;">VIA DO CLIENTE</span>
+                    <h5 class="text-danger mb-0" style="font-weight: bold; font-size: 13px;">COMPROVANTE DE ENTRADA</h5>
+                    <h5 class="mb-0" style="color: #002060; font-size: 15px;"><strong>Nº ENT-{e['id']:04d}</strong></h5>
+                    <small class="text-muted" style="font-size: 11px;">Data: {data_formatada}</small>
+                </div>
+            </div>
+
+            <div class="section-title">01 DADOS DO CLIENTE</div>
+            <div class="row mb-2">
+                <div class="col-8"><p class="mb-1"><strong>Cliente / Razão social:</strong> {e['cliente']}</p></div>
+                <div class="col-4"><p class="mb-1"><strong>CPF/CNPJ:</strong> {e['cpf_cnpj'] or 'Não informado'}</p></div>
+                <div class="col-12"><p class="mb-0"><strong>Contato / WhatsApp:</strong> {e['contato'] or 'Não informado'}</p></div>
+            </div>
+
+            <div class="section-title">02 IDENTIFICAÇÃO DO EQUIPAMENTO</div>
+            <div class="row mb-2">
+                <div class="col-md-4"><p class="mb-1"><strong>Tipo:</strong> {e['tipo_equip']}</p></div>
+                <div class="col-md-4"><p class="mb-1"><strong>Marca:</strong> {e['marca'] or 'Não informada'}</p></div>
+                <div class="col-md-4"><p class="mb-1"><strong>Modelo:</strong> {e['equipamento']}</p></div>
+                <div class="col-md-6"><p class="mb-1"><strong>Nº de Série / Patrimônio:</strong> {e['ns_patrimonio'] or 'Não informado'}</p></div>
+                <div class="col-md-6"><p class="mb-1"><strong>Acessórios entregues:</strong> {e['acessorios'] or 'Nenhum'}</p></div>
+                <div class="col-12"><p class="mb-1"><strong>Condição visual:</strong> {e['condicao'] or 'Normal'}</p></div>
+            </div>
+
+            <div class="section-title">03 DEFEITO RELATADO</div>
+            <div class="row mb-2">
+                <div class="col-12">
+                    <p class="mb-0 p-2 bg-light border rounded" style="font-size: 12px;"><strong>Defeito relatado:</strong> {e['defeito'] or 'Não especificado'}</p>
+                </div>
+            </div>
+
+            <div class="footer-terms text-center">
+                <p class="mb-0"><strong>Termos:</strong> Orçamento sujeito à análise técnica (Prazo: até 48h). Não nos responsabilizamos por aparelhos deixados por mais de 90 dias.</p>
+            </div>
+
+            <div class="row mt-4 text-center">
+                <div class="col-6">
+                    <div style="border-top: 1px solid #000; width: 80%; margin: auto; padding-top: 4px; font-size: 11px;">Assinatura do Cliente</div>
+                </div>
+                <div class="col-6">
+                    <div style="border-top: 1px solid #000; width: 80%; margin: auto; padding-top: 4px; font-size: 11px;">Clínica do Hardware</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-3 no-print">
+            <button onclick="window.print()" class="btn btn-primary btn-sm"><i class="fas fa-print"></i> Imprimir / Salvar PDF</button>
+            <a href="/entrada" class="btn btn-secondary btn-sm">Voltar</a>
+        </div>
+    </body>
+    </html>
+    """
+    return print_template
+
+@app.route('/entrada/enviar_email/<int:id>')
+def enviar_email_entrada(id):
+    conn = get_db_connection()
+    e = conn.execute("SELECT * FROM ordem_entrada WHERE id = ?", (id,)).fetchone()
+    conn.close()
+    if not e or not e['email']:
+        flash("E-mail do cliente não cadastrado para este registro.", "danger")
+        return redirect(url_for('ordem_entrada'))
+    
+    data_formatada = datetime.strptime(e['data_entrada'], "%Y-%m-%d").strftime("%d/%m/%Y") if e['data_entrada'] else datetime.now().strftime("%d/%m/%Y")
+    
+    assunto = f"Envio de Ordem de Entrada Nº {e['id']:04d} - {e['equipamento']} | {e['cliente']}"
+    corpo_html = f"""
+    <div style="font-family: Arial, sans-serif; color: #333; padding: 25px; border: 1px solid #002060; border-radius: 8px; max-width: 600px; margin: auto; background-color: #ffffff;">
+        <h2 style="color: #002060; border-bottom: 2px solid #002060; padding-bottom: 10px; margin-top: 0;">CLÍNICA DO HARDWARE</h2>
+        <p>Prezado(a) <strong>{e['cliente']}</strong>,</p>
+        <p>Espero que se encontre bem.</p>
+        <p>Segue em anexo a <strong>Ordem de Entrada Nº {e['id']:04d}</strong> referente ao equipamento <strong>{e['tipo_equip']} {e['marca'] or ''} {e['equipamento']}</strong> (Patrimônio/Série: <strong>{e['ns_patrimonio'] or 'Não informado'}</strong>), deixado nas nossas instalações no dia <strong>{data_formatada}</strong>.</p>
+        
+        <div style="background-color: #f8f9fa; padding: 15px; border-left: 4px solid #002060; margin: 15px 0; border-radius: 4px;">
+            <p style="margin: 0 0 8px 0;"><strong>Resumo da Entrada:</strong></p>
+            <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Status:</strong> Em análise na recepção</li>
+                <li><strong>Defeito Relatado:</strong> {e['defeito'] or 'Não especificado'}</li>
+                <li><strong>Acessórios Deixados:</strong> {e['acessorios'] or 'Nenhum'}</li>
+            </ul>
+        </div>
+        
+        <p>Ficamos a aguardar a conclusão da avaliação técnica para enviar o orçamento detalhado.</p>
+        <p>Caso tenha alguma dúvida ou necessite de esclarecimentos adicionais, estamos à inteira disposição.</p>
+        <br>
+        <p style="margin-bottom: 0;">Com os melhores cumprimentos,</p>
+        <p style="font-weight: bold; color: #002060; margin-top: 4px;">Clínica do Hardware</p>
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+        <p style="font-size: 12px; color: #666; text-align: center; margin: 0;">Tel: (98) 9 8482-9705 | São Luís - MA</p>
+    </div>
+    """
+    
+    # Gera o PDF em memória para anexo
+    html_pdf = gerar_html_comprovante_entrada(e)
+    pdf_bytes = None
+    try:
+        import pdfkit
+        pdf_bytes = pdfkit.from_string(html_pdf, False)
+    except Exception:
+        pdf_bytes = html_pdf.encode('utf-8')  # Fallback caso pdfkit não esteja instalado
+
+    nome_pdf = f"Ordem_Entrada_{e['id']:04d}.pdf"
+    sucesso, mensagem = enviar_email_com_anexo_smtp(e['email'], assunto, corpo_html, pdf_bytes, nome_pdf)
+    
+    if sucesso:
+        flash("E-mail com Ordem de Entrada em PDF enviado com sucesso pelo Gmail!", "success")
+    else:
+        flash(f"Erro ao enviar e-mail: {mensagem}", "danger")
+        
+    return redirect(url_for('ordem_entrada'))
 
 @app.route('/entrada/excluir/<int:id>')
 def excluir_entrada(id):
@@ -586,16 +1047,13 @@ def excluir_entrada(id):
     conn.commit()
     conn.close()
     flash("Registro de entrada excluído com sucesso!", "success")
-    return redirect(url_for('entrada_recepcao'))
+    return redirect(url_for('ordem_entrada'))
 
 @app.route('/os/nova_de_entrada/<int:id>', methods=['GET', 'POST'])
 def nova_os_de_entrada(id):
     conn = get_db_connection()
     entrada = conn.execute("SELECT * FROM ordem_entrada WHERE id = ?", (id,)).fetchone()
-    if not entrada:
-        flash("Entrada não encontrada.", "danger")
-        return redirect(url_for('entrada_recepcao'))
-
+    
     if request.method == 'POST':
         cliente = request.form['cliente']
         cpf_cnpj = request.form['cpf_cnpj']
@@ -613,7 +1071,7 @@ def nova_os_de_entrada(id):
         
         servicos_json = request.form['servicos_json']
         pecas_json = request.form['pecas_json']
-
+        
         servicos_arr = json.loads(servicos_json) if servicos_json else []
         servico_str = ", ".join([f"{s['quantidade']}x {s['nome']} (R$ {s['valor_unitario']:.2f} un)" for s in servicos_arr])
 
@@ -716,6 +1174,7 @@ def nova_os_de_entrada(id):
                     <textarea class="form-control" name="diagnostico" rows="2"></textarea>
                 </div>
 
+                <!-- SERVIÇOS DINÂMICOS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0 text-primary"><i class="fas fa-tools"></i> Serviços a Executar (Múltiplos Serviços & Quantidade):</label>
@@ -724,6 +1183,7 @@ def nova_os_de_entrada(id):
                     <div id="container-servicos"></div>
                 </div>
 
+                <!-- PEÇAS DINÂMICAS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0"><i class="fas fa-boxes"></i> Peças Utilizadas (Múltiplas Peças & Quantidade):</label>
@@ -771,46 +1231,6 @@ def index():
         item['os_formatada'] = f"OS-{item['id']:04d}"
         os_list.append(item)
 
-    linhas_tabela_os = ""
-    for r in os_list:
-        contato_digitos = ''.join(filter(str.isdigit, str(r['contato'] or '')))
-        whatsapp_msg = urllib.parse.quote(f"Olá *{r['cliente']}*, sua O.S. *OS-{r['id']:04d}* referente ao equipamento *{r['tipo_equip']} {r['marca'] or ''} {r['equipamento']}* encontra-se com status: *{r['status']}*. Valor total: R$ {r['valor']:.2f}. Agradecemos a preferência!")
-        
-        sel_aprov = 'selected' if r['status'] == 'Aguardando Aprovação' else ''
-        sel_exec = 'selected' if r['status'] == 'Em Execução' else ''
-        sel_executado = 'selected' if r['status'] == 'Executado' else ''
-
-        linhas_tabela_os += f"""
-        <tr>
-            <td><strong>{r['os_formatada']}</strong></td>
-            <td>{r['cliente']}</td>
-            <td>{r['equipamento']}</td>
-            <td>R$ {r['valor']:.2f}</td>
-            <td>
-                <select class='form-select form-select-sm fw-bold' style='width: 175px;' onchange='alterarStatusRapido({r['id']}, this.value)'>
-                    <option value='Aguardando Aprovação' {sel_aprov}>Aguardando Aprovação</option>
-                    <option value='Em Execução' {sel_exec}>Em Execução</option>
-                    <option value='Executado' {sel_executado}>Executado</option>
-                </select>
-            </td>
-            <td>{r['data_abertura']}</td>
-            <td>
-                <div class='btn-group btn-group-sm mb-1'>
-                    <a href='/os/imprimir/{r['id']}' class='btn btn-primary' target='_blank' title='2 Vias (Imprimir/PDF)'><i class='fas fa-print'></i> 2 Vias</a>
-                    <a href='/os/imprimir_via_unica/{r['id']}' class='btn btn-outline-primary' target='_blank' title='Via Única Cliente' style='background:#e7f1ff;'><i class='fas fa-file-alt'></i> Via Única</a>
-                </div>
-                <div class='btn-group btn-group-sm'>
-                    <a href='/os/enviar_email/{r['id']}' class='btn btn-warning' title='Enviar por E-mail (Gmail)'><i class='fas fa-envelope'></i></a>
-                    <a href='https://api.whatsapp.com/send?phone=55{contato_digitos}&text={whatsapp_msg}' target='_blank' class='btn btn-success' title='Enviar no WhatsApp'><i class='fab fa-whatsapp'></i></a>
-                    <a href='/os/editar/{r['id']}' class='btn btn-secondary' title='Editar'><i class='fas fa-edit'></i></a>
-                    <a href='/os/excluir/{r['id']}' class='btn btn-danger' onclick="return confirm('Deseja excluir esta O.S.?');" title='Excluir'><i class='fas fa-trash'></i></a>
-                </div>
-            </td>
-        </tr>
-        """
-    if not os_list:
-        linhas_tabela_os = "<tr><td colspan='7' class='text-center text-muted'>Nenhuma Ordem de Serviço cadastrada.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom">
         <h2><i class="fas fa-clipboard-list"></i> Ordens de Serviço</h2>
@@ -840,7 +1260,18 @@ def index():
                     </tr>
                 </thead>
                 <tbody>
-                    {linhas_tabela_os}
+                    {''.join([f"<tr><td><strong>" + r['os_formatada'] + f"</strong></td><td>" + str(r['cliente']) + f"</td><td>" + str(r['equipamento']) + f"</td><td>R$ " + f"{r['valor']:.2f}" + f"</td><td><select class='form-select form-select-sm fw-bold ' style='width: 175px;' onchange='alterarStatusRapido(" + str(r['id']) + f", this.value)'><option value='Aguardando Aprovação' " + ('selected' if r['status'] == 'Aguardando Aprovação' else '') + f">Aguardando Aprovação</option><option value='Em Execução' " + ('selected' if r['status'] == 'Em Execução' else '') + f">Em Execução</option><option value='Executado' " + ('selected' if r['status'] == 'Executado' else '') + f">Executado</option></select></td><td>" + str(r['data_abertura']) + f"</td><td>" +
+                    f"<div class='btn-group btn-group-sm mb-1'>" +
+                    f"<a href='/os/imprimir/" + str(r['id']) + f"' class='btn btn-primary' target='_blank' title='2 Vias (Imprimir/PDF)'><i class='fas fa-print'></i> 2 Vias</a>" +
+                    f"<a href='/os/imprimir_via_unica/" + str(r['id']) + f"' class='btn btn-outline-primary' target='_blank' title='Via Única Cliente' style='background:#e7f1ff;'><i class='fas fa-file-alt'></i> Via Única</a>" +
+                    f"</div>" +
+                    f"<div class='btn-group btn-group-sm'>" +
+                    f"<a href='/os/enviar_email/" + str(r['id']) + f"' class='btn btn-warning' title='Enviar por E-mail (Gmail)'><i class='fas fa-envelope'></i></a>" +
+                    f"<a href='https://api.whatsapp.com/send?phone=55" + ''.join(filter(str.isdigit, str(r['contato'] or ''))) + f"&text=" + urllib.parse.quote(f"Olá *{r['cliente']}*, sua O.S. *OS-{r['id']:04d}* referente ao equipamento *{r['tipo_equip']} {r['marca'] or ''} {r['equipamento']}* encontra-se com status: *{r['status']}*. Valor total: R$ {r['valor']:.2f}. Agradecemos a preferência!") + f"' target='_blank' class='btn btn-success' title='Enviar no WhatsApp'><i class='fab fa-whatsapp'></i></a>" +
+                    f"<a href='/os/editar/" + str(r['id']) + f"' class='btn btn-secondary' title='Editar'><i class='fas fa-edit'></i></a>" +
+                    f"<a href='/os/excluir/" + str(r['id']) + f"' class='btn btn-danger' onclick=\"return confirm('Deseja excluir esta O.S.?')\" title='Excluir'><i class='fas fa-trash'></i></a>" +
+                    f"</div>" +
+                    f"</td></tr>" for r in os_list]) if os_list else "<tr><td colspan='7' class='text-center text-muted'>Nenhuma Ordem de Serviço cadastrada.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -1174,13 +1605,14 @@ def enviar_email_os(id):
     </div>
     """
     
-    html_pdf = imprimir_os(id)
+    # Gera o PDF em memória para anexo
+    html_pdf = gerar_html_os(os_item)
     pdf_bytes = None
     try:
         import pdfkit
         pdf_bytes = pdfkit.from_string(html_pdf, False)
     except Exception:
-        pdf_bytes = html_pdf.encode('utf-8')
+        pdf_bytes = html_pdf.encode('utf-8')  # Fallback caso pdfkit não esteja instalado
 
     nome_pdf = f"Ordem_Servico_{os_item['id']:04d}.pdf"
     sucesso, mensagem = enviar_email_com_anexo_smtp(os_item['email_end'], assunto, corpo_html, pdf_bytes, nome_pdf)
@@ -1338,6 +1770,7 @@ def nova_os():
                     <textarea class="form-control" name="diagnostico" rows="2"></textarea>
                 </div>
 
+                <!-- SERVIÇOS DINÂMICOS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0 text-primary"><i class="fas fa-tools"></i> Serviços a Executar (Múltiplos Serviços & Quantidade):</label>
@@ -1346,6 +1779,7 @@ def nova_os():
                     <div id="container-servicos"></div>
                 </div>
 
+                <!-- PEÇAS DINÂMICAS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0"><i class="fas fa-boxes"></i> Peças Utilizadas (Múltiplas Peças & Quantidade):</label>
@@ -1513,6 +1947,7 @@ def editar_os(id):
                     <textarea class="form-control" name="diagnostico" rows="2">{os_item['diagnostico'] or ''}</textarea>
                 </div>
 
+                <!-- SERVIÇOS DINÂMICOS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0 text-primary"><i class="fas fa-tools"></i> Serviços a Executar (Múltiplos Serviços & Quantidade):</label>
@@ -1521,6 +1956,7 @@ def editar_os(id):
                     <div id="container-servicos"></div>
                 </div>
 
+                <!-- PEÇAS DINÂMICAS -->
                 <div class="col-md-12 p-3 bg-light border rounded">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <label class="form-label fw-bold mb-0"><i class="fas fa-boxes"></i> Peças Utilizadas (Múltiplas Peças & Quantidade):</label>
@@ -1614,22 +2050,6 @@ def clientes():
     
     lista = conn.execute("SELECT * FROM clientes ORDER BY id DESC").fetchall()
     conn.close()
-
-    linhas_clientes = "".join([
-        f"<tr>"
-        f"<td>{c['id']}</td>"
-        f"<td>{c['nome']}</td>"
-        f"<td>{c['cpf_cnpj'] or ''}</td>"
-        f"<td>{c['contato'] or ''}</td>"
-        f"<td>{c['cidade_uf'] or ''}</td>"
-        f"<td>"
-        f"<a href='/clientes/editar/{c['id']}' class='btn btn-sm btn-warning'><i class='fas fa-edit'></i></a> "
-        f"<a href='/clientes/excluir/{c['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este cliente?');\"><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for c in lista
-    ]) if lista else "<tr><td colspan='6' class='text-center text-muted'>Nenhum cliente cadastrado.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom">
         <h2><i class="fas fa-users"></i> Gerenciamento de Clientes</h2>
@@ -1665,7 +2085,7 @@ def clientes():
                     <tr><th>ID</th><th>Nome / Razão Social</th><th>CPF / CNPJ</th><th>Contato</th><th>Cidade/UF</th><th>Ações</th></tr>
                 </thead>
                 <tbody>
-                    {linhas_clientes}
+                    {''.join([f"<tr><td>" + str(c['id']) + f"</td><td>" + str(c['nome']) + f"</td><td>" + str(c['cpf_cnpj'] or '') + f"</td><td>" + str(c['contato'] or '') + f"</td><td>" + str(c['cidade_uf'] or '') + f"</td><td><a href='/clientes/editar/" + str(c['id']) + f"' class='btn btn-sm btn-warning'><i class='fas fa-edit'></i></a> <a href='/clientes/excluir/" + str(c['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este cliente?')\"><i class='fas fa-trash'></i></a></td></tr>" for c in lista]) if lista else "<tr><td colspan='6' class='text-center text-muted'>Nenhum cliente cadastrado.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -1749,21 +2169,6 @@ def servicos():
         return redirect(url_for('servicos'))
     lista = conn.execute("SELECT * FROM servicos_cadastrados").fetchall()
     conn.close()
-
-    linhas_servicos = "".join([
-        f"<tr>"
-        f"<td>{s['id']}</td>"
-        f"<td>{s['nome_servico']}</td>"
-        f"<td>{s['descricao'] or ''}</td>"
-        f"<td>R$ {s['valor_padrao']:.2f}</td>"
-        f"<td>"
-        f"<a href='/servicos/editar/{s['id']}' class='btn btn-sm btn-warning' title='Editar'><i class='fas fa-edit'></i></a> "
-        f"<a href='/servicos/excluir/{s['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este serviço?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for s in lista
-    ]) if lista else "<tr><td colspan='5' class='text-center text-muted'>Nenhum serviço cadastrado.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-tools"></i> Cadastro de Serviços</h2></div>
     <div class="card p-4 mb-4">
@@ -1785,7 +2190,7 @@ def servicos():
             <table id="tabelaServicos" class="table table-striped align-middle">
                 <thead class="table-dark"><tr><th>ID</th><th>Serviço</th><th>Descrição</th><th>Valor Padrão</th><th>Ações</th></tr></thead>
                 <tbody>
-                    {linhas_servicos}
+                    {''.join([f"<tr><td>" + str(s['id']) + f"</td><td>" + str(s['nome_servico']) + f"</td><td>" + str(s['descricao'] or '') + f"</td><td>R$ " + f"{s['valor_padrao']:.2f}" + f"</td><td><a href='/servicos/editar/" + str(s['id']) + f"' class='btn btn-sm btn-warning' title='Editar'><i class='fas fa-edit'></i></a> <a href='/servicos/excluir/" + str(s['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este serviço?')\" title='Excluir'><i class='fas fa-trash'></i></a></td></tr>" for s in lista]) if lista else "<tr><td colspan='5' class='text-center text-muted'>Nenhum serviço cadastrado.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -1852,23 +2257,6 @@ def pecas():
         return redirect(url_for('pecas'))
     lista = conn.execute("SELECT * FROM pecas_estoque").fetchall()
     conn.close()
-
-    linhas_pecas = "".join([
-        f"<tr>"
-        f"<td>{p['id']}</td>"
-        f"<td>{p['nome_peca']}</td>"
-        f"<td>{p['codigo'] or ''}</td>"
-        f"<td>{p['quantidade']}</td>"
-        f"<td>R$ {p['valor_custo']:.2f}</td>"
-        f"<td>R$ {p['valor_venda']:.2f}</td>"
-        f"<td>"
-        f"<a href='/pecas/editar/{p['id']}' class='btn btn-sm btn-warning' title='Editar'><i class='fas fa-edit'></i></a> "
-        f"<a href='/pecas/excluir/{p['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta peça?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for p in lista
-    ]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhuma peça no estoque.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-boxes"></i> Peças / Estoque</h2></div>
     <div class="card p-4 mb-4">
@@ -1892,7 +2280,7 @@ def pecas():
             <table id="tabelaPecas" class="table table-striped align-middle">
                 <thead class="table-dark"><tr><th>ID</th><th>Peça</th><th>Código</th><th>Qtd</th><th>Custo</th><th>Venda</th><th>Ações</th></tr></thead>
                 <tbody>
-                    {linhas_pecas}
+                    {''.join([f"<tr><td>" + str(p['id']) + f"</td><td>" + str(p['nome_peca']) + f"</td><td>" + str(p['codigo'] or '') + f"</td><td>" + str(p['quantidade']) + f"</td><td>R$ " + f"{p['valor_custo']:.2f}" + f"</td><td>R$ " + f"{p['valor_venda']:.2f}" + f"</td><td><a href='/pecas/editar/" + str(p['id']) + f"' class='btn btn-sm btn-warning' title='Editar'><i class='fas fa-edit'></i></a> <a href='/pecas/excluir/" + str(p['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta peça?')\" title='Excluir'><i class='fas fa-trash'></i></a></td></tr>" for p in lista]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhuma peça no estoque.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -1962,24 +2350,6 @@ def boletos():
         return redirect(url_for('boletos'))
     lista = conn.execute("SELECT * FROM boletos").fetchall()
     conn.close()
-
-    linhas_boletos = "".join([
-        f"<tr>"
-        f"<td>{b['id']}</td>"
-        f"<td>{b['cliente']}</td>"
-        f"<td>{b['numero_documento']}</td>"
-        f"<td>R$ {b['valor']:.2f}</td>"
-        f"<td>{b['data_vencimento']}</td>"
-        f"<td><span class='badge bg-{'success' if b['status'] == 'Pago' else 'warning'}'>{b['status']}</span></td>"
-        f"<td>"
-        f"{f\"<a href='/boletos/pagar/{b['id']}' class='btn btn-sm btn-success me-1' title='Marcar como Pago'><i class='fas fa-check'></i></a>\" if b['status'] != 'Pago' else ''}"
-        f"<a href='/boletos/editar/{b['id']}' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> "
-        f"<a href='/boletos/excluir/{b['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este boleto?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for b in lista
-    ]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhum boleto cadastrado.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-credit-card"></i> Boletos e Cobranças</h2></div>
     <div class="card p-4 mb-4">
@@ -2002,7 +2372,7 @@ def boletos():
             <table id="tabelaBoletos" class="table table-striped align-middle">
                 <thead class="table-dark"><tr><th>ID</th><th>Cliente</th><th>Nº Doc</th><th>Valor</th><th>Vencimento</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
-                    {linhas_boletos}
+                    {''.join([f"<tr><td>" + str(b['id']) + f"</td><td>" + str(b['cliente']) + f"</td><td>" + str(b['numero_documento']) + f"</td><td>R$ " + f"{b['valor']:.2f}" + f"</td><td>" + str(b['data_vencimento']) + f"</td><td><span class='badge bg-" + ('success' if b['status'] == 'Pago' else 'warning') + f"'>" + str(b['status']) + f"</span></td><td>" + (f"<a href='/boletos/pagar/" + str(b['id']) + f"' class='btn btn-sm btn-success me-1' title='Marcar como Pago'><i class='fas fa-check'></i></a>" if b['status'] != 'Pago' else '') + f"<a href='/boletos/editar/" + str(b['id']) + f"' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> <a href='/boletos/excluir/" + str(b['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este boleto?')\" title='Excluir'><i class='fas fa-trash'></i></a></td></tr>" for b in lista]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhum boleto cadastrado.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -2029,10 +2399,6 @@ def editar_boleto(id):
         return redirect(url_for('boletos'))
 
     conn.close()
-    
-    sel_pend = 'selected' if b['status'] == 'Gerado (Aguardando Pagamento)' else ''
-    sel_pago = 'selected' if b['status'] == 'Pago' else ''
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-edit"></i> Editar Boleto (ID: {b['id']})</h2></div>
     <div class="card p-4">
@@ -2043,8 +2409,8 @@ def editar_boleto(id):
             <div class="col-md-4"><label class="form-label">Data Vencimento:</label><input type="date" class="form-control" name="data_vencimento" value="{b['data_vencimento'] or ''}" required></div>
             <div class="col-md-4"><label class="form-label">Status:</label>
                 <select class="form-select" name="status">
-                    <option value="Gerado (Aguardando Pagamento)" {sel_pend}>Gerado (Aguardando Pagamento)</option>
-                    <option value="Pago" {sel_pago}>Pago</option>
+                    <option value="Gerado (Aguardando Pagamento)" {'selected' if b['status'] == 'Gerado (Aguardando Pagamento)' else ''}>Gerado (Aguardando Pagamento)</option>
+                    <option value="Pago" {'selected' if b['status'] == 'Pago' else ''}>Pago</option>
                 </select>
             </div>
             <div class="col-12 mt-4">
@@ -2090,23 +2456,6 @@ def nfs():
         return redirect(url_for('nfs'))
     lista = conn.execute("SELECT * FROM notas_fiscais").fetchall()
     conn.close()
-
-    linhas_nfs = "".join([
-        f"<tr>"
-        f"<td>{n['id']}</td>"
-        f"<td>{n['numero_nf']}</td>"
-        f"<td>{n['cliente']}</td>"
-        f"<td>R$ {n['valor']:.2f}</td>"
-        f"<td>{n['data_emissao']}</td>"
-        f"<td><span class='badge bg-success'>{n['status']}</span></td>"
-        f"<td>"
-        f"<a href='/nfs/editar/{n['id']}' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> "
-        f"<a href='/nfs/excluir/{n['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta Nota Fiscal?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for n in lista
-    ]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhuma Nota Fiscal emitida.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-receipt"></i> Notas Fiscais (NFS-e)</h2></div>
     <div class="card p-4 mb-4">
@@ -2128,7 +2477,7 @@ def nfs():
             <table id="tabelaNFs" class="table table-striped align-middle">
                 <thead class="table-dark"><tr><th>ID</th><th>Nº NF</th><th>Cliente</th><th>Valor</th><th>Emissão</th><th>Status</th><th>Ações</th></tr></thead>
                 <tbody>
-                    {linhas_nfs}
+                    {''.join([f"<tr><td>" + str(n['id']) + f"</td><td>" + str(n['numero_nf']) + f"</td><td>" + str(n['cliente']) + f"</td><td>R$ " + f"{n['valor']:.2f}" + f"</td><td>" + str(n['data_emissao']) + f"</td><td><span class='badge bg-success'>" + str(n['status']) + f"</span></td><td><a href='/nfs/editar/" + str(n['id']) + f"' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> <a href='/nfs/excluir/" + str(n['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta Nota Fiscal?')\" title='Excluir'><i class='fas fa-trash'></i></a></td></tr>" for n in lista]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhuma Nota Fiscal emitida.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -2154,10 +2503,6 @@ def editar_nf(id):
         return redirect(url_for('nfs'))
 
     conn.close()
-    
-    sel_emitida = 'selected' if n['status'] == 'Emitida' else ''
-    sel_cancelada = 'selected' if n['status'] == 'Cancelada' else ''
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-edit"></i> Editar Nota Fiscal (ID: {n['id']})</h2></div>
     <div class="card p-4">
@@ -2167,8 +2512,8 @@ def editar_nf(id):
             <div class="col-md-6"><label class="form-label">Valor (R$):</label><input type="number" step="0.01" class="form-control" name="valor" value="{n['valor'] or 0.00}" required></div>
             <div class="col-md-6"><label class="form-label">Status:</label>
                 <select class="form-select" name="status">
-                    <option value="Emitida" {sel_emitida}>Emitida</option>
-                    <option value="Cancelada" {sel_cancelada}>Cancelada</option>
+                    <option value="Emitida" {'selected' if n['status'] == 'Emitida' else ''}>Emitida</option>
+                    <option value="Cancelada" {'selected' if n['status'] == 'Cancelada' else ''}>Cancelada</option>
                 </select>
             </div>
             <div class="col-12 mt-4">
@@ -2204,22 +2549,6 @@ def despesas():
         return redirect(url_for('despesas'))
     lista = conn.execute("SELECT * FROM despesas ORDER BY data_despesa DESC").fetchall()
     conn.close()
-
-    linhas_despesas = "".join([
-        f"<tr>"
-        f"<td>{d['id']}</td>"
-        f"<td>{d['descricao']}</td>"
-        f"<td>{d['categoria']}</td>"
-        f"<td class='text-danger'>R$ {d['valor']:.2f}</td>"
-        f"<td>{d['data_despesa']}</td>"
-        f"<td>"
-        f"<a href='/despesas/editar/{d['id']}' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> "
-        f"<a href='/despesas/excluir/{d['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta despesa?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
-        f"</td>"
-        f"</tr>"
-        for d in lista
-    ]) if lista else "<tr><td colspan='6' class='text-center text-muted'>Nenhuma despesa registrada.</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-chart-line text-danger"></i> Despesas da Empresa</h2></div>
     <div class="card p-4 mb-4">
@@ -2249,7 +2578,7 @@ def despesas():
             <table id="tabelaDespesas" class="table table-striped align-middle">
                 <thead class="table-dark"><tr><th>ID</th><th>Descrição</th><th>Categoria</th><th>Valor</th><th>Data</th><th>Ações</th></tr></thead>
                 <tbody>
-                    {linhas_despesas}
+                    {''.join([f"<tr><td>" + str(d['id']) + f"</td><td>" + str(d['descricao']) + f"</td><td>" + str(d['categoria']) + f"</td><td class='text-danger'>R$ " + f"{d['valor']:.2f}" + f"</td><td>" + str(d['data_despesa']) + f"</td><td><a href='/despesas/editar/" + str(d['id']) + f"' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> <a href='/despesas/excluir/" + str(d['id']) + f"' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir esta despesa?')\" title='Excluir'><i class='fas fa-trash'></i></a></td></tr>" for d in lista]) if lista else "<tr><td colspan='6' class='text-center text-muted'>Nenhuma despesa registrada.</td></tr>"}
                 </tbody>
             </table>
         </div>
@@ -2274,13 +2603,6 @@ def editar_despesa(id):
         return redirect(url_for('despesas'))
 
     conn.close()
-    
-    cat_pecas = 'selected' if d['categoria'] == 'Peças/Estoque' else ''
-    cat_impostos = 'selected' if d['categoria'] == 'Impostos/Taxas' else ''
-    cat_internet = 'selected' if d['categoria'] == 'Internet/Telefone' else ''
-    cat_combustivel = 'selected' if d['categoria'] == 'Combustível/Transporte' else ''
-    cat_outros = 'selected' if d['categoria'] == 'Outros' else ''
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-edit"></i> Editar Despesa (ID: {d['id']})</h2></div>
     <div class="card p-4">
@@ -2288,11 +2610,11 @@ def editar_despesa(id):
             <div class="col-md-6"><label class="form-label">Descrição:</label><input type="text" class="form-control" name="descricao" value="{d['descricao'] or ''}" required></div>
             <div class="col-md-6"><label class="form-label">Categoria:</label>
                 <select class="form-select" name="categoria">
-                    <option value="Peças/Estoque" {cat_pecas}>Peças/Estoque</option>
-                    <option value="Impostos/Taxas" {cat_impostos}>Impostos/Taxas</option>
-                    <option value="Internet/Telefone" {cat_internet}>Internet/Telefone</option>
-                    <option value="Combustível/Transporte" {cat_combustivel}>Combustível/Transporte</option>
-                    <option value="Outros" {cat_outros}>Outros</option>
+                    <option value="Peças/Estoque" {'selected' if d['categoria'] == 'Peças/Estoque' else ''}>Peças/Estoque</option>
+                    <option value="Impostos/Taxas" {'selected' if d['categoria'] == 'Impostos/Taxas' else ''}>Impostos/Taxas</option>
+                    <option value="Internet/Telefone" {'selected' if d['categoria'] == 'Internet/Telefone' else ''}>Internet/Telefone</option>
+                    <option value="Combustível/Transporte" {'selected' if d['categoria'] == 'Combustível/Transporte' else ''}>Combustível/Transporte</option>
+                    <option value="Outros" {'selected' if d['categoria'] == 'Outros' else ''}>Outros</option>
                 </select>
             </div>
             <div class="col-md-6"><label class="form-label">Valor (R$):</label><input type="number" step="0.01" class="form-control" name="valor" value="{d['valor'] or 0.00}" required></div>
@@ -2405,10 +2727,6 @@ def financeiro():
     opt_clientes = "".join([f"<option value='{c['cliente']}' {'selected' if cliente_filtro == c['cliente'] else ''}>{c['cliente']}</option>" for c in clientes_disponiveis])
     opt_servicos = "".join([f"<option value='{s['servico']}' {'selected' if servico_filtro == s['servico'] else ''}>{s['servico']}</option>" for s in servicos_disponiveis])
 
-    linhas_ranking_clientes = "".join([f"<tr><td>{c['cliente']}</td><td class='text-end fw-bold text-primary'>R$ {c['total_receita']:.2f}</td></tr>" for c in ranking_clientes]) if ranking_clientes else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"
-    linhas_ranking_servicos = "".join([f"<tr><td>{s['servico']} <small class='text-muted'>({s['qtd']}x)</small></td><td class='text-end fw-bold text-success'>R$ {s['total_receita']:.2f}</td></tr>" for s in ranking_servicos]) if ranking_servicos else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"
-    linhas_ranking_despesas = "".join([f"<tr><td>{d['categoria']}</td><td class='text-end fw-bold text-danger'>R$ {d['total_despesa']:.2f}</td></tr>" for d in ranking_despesas]) if ranking_despesas else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"
-
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom">
         <h2><i class="fas fa-chart-pie text-success"></i> Painel Financeiro & Métricas Dinâmicas</h2>
@@ -2487,7 +2805,7 @@ def financeiro():
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light"><tr><th>Cliente</th><th class="text-end">Receita</th></tr></thead>
                         <tbody>
-                            {linhas_ranking_clientes}
+                            {''.join([f"<tr><td>" + str(c['cliente']) + f"</td><td class='text-end fw-bold text-primary'>R$ " + f"{c['total_receita']:.2f}" + f"</td></tr>" for c in ranking_clientes]) if ranking_clientes else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"}
                         </tbody>
                     </table>
                 </div>
@@ -2500,7 +2818,7 @@ def financeiro():
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light"><tr><th>Serviço</th><th class="text-end">Receita</th></tr></thead>
                         <tbody>
-                            {linhas_ranking_servicos}
+                            {''.join([f"<tr><td>" + str(s['servico']) + f" <small class='text-muted'>({s['qtd']}x)</small></td><td class='text-end fw-bold text-success'>R$ " + f"{s['total_receita']:.2f}" + f"</td></tr>" for s in ranking_servicos]) if ranking_servicos else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"}
                         </tbody>
                     </table>
                 </div>
@@ -2513,7 +2831,7 @@ def financeiro():
                     <table class="table table-sm table-hover align-middle mb-0">
                         <thead class="table-light"><tr><th>Categoria</th><th class="text-end">Total</th></tr></thead>
                         <tbody>
-                            {linhas_ranking_despesas}
+                            {''.join([f"<tr><td>" + str(d['categoria']) + f"</td><td class='text-end fw-bold text-danger'>R$ " + f"{d['total_despesa']:.2f}" + f"</td></tr>" for d in ranking_despesas]) if ranking_despesas else "<tr><td colspan='2' class='text-center text-muted'>Sem dados</td></tr>"}
                         </tbody>
                     </table>
                 </div>
