@@ -1,8 +1,5 @@
-import os
-import sqlite3
-import psycopg2
-import psycopg2.extras
 from flask import Flask, render_template_string, request, redirect, url_for, flash, jsonify
+import sqlite3
 import json
 from datetime import datetime
 import urllib.parse
@@ -15,254 +12,130 @@ from email import encoders
 app = Flask(__name__)
 app.secret_key = 'sua_chave_secreta_super_segura'
 
-# Pega a URL do Neon automaticamente pelo ambiente do Cloud Run
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DB_NAME = 'database.db'
 
 def get_db_connection():
-    if DATABASE_URL:
-        # Conecta no PostgreSQL do Neon usando a URL com pooler
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-        return conn
-    else:
-        # Usa o SQLite local quando rodar na sua máquina
-        conn = sqlite3.connect('database.db')
-        conn.row_factory = sqlite3.Row
-        return conn
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    if DATABASE_URL:
-        # Estrutura para PostgreSQL (Neon)
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ordens_servico (
-            id SERIAL PRIMARY KEY,
-            cliente TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email_end TEXT,
-            tipo_equip TEXT,
-            marca TEXT,
-            equipamento TEXT,
-            ns_patrimonio TEXT,
-            acessorios TEXT,
-            condicao TEXT,
-            status TEXT,
-            defeito TEXT,
-            diagnostico TEXT,
-            servico TEXT,
-            servicos_json TEXT,
-            peca_utilizada TEXT,
-            pecas_json TEXT,
-            valor_pecas REAL,
-            valor_servico REAL,
-            valor REAL,
-            data_abertura TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ordens_servico (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente TEXT,
+        cpf_cnpj TEXT,
+        contato TEXT,
+        email_end TEXT,
+        tipo_equip TEXT,
+        marca TEXT,
+        equipamento TEXT,
+        ns_patrimonio TEXT,
+        acessorios TEXT,
+        condicao TEXT,
+        status TEXT,
+        defeito TEXT,
+        diagnostico TEXT,
+        servico TEXT,
+        servicos_json TEXT,
+        peca_utilizada TEXT,
+        pecas_json TEXT,
+        valor_pecas REAL,
+        valor_servico REAL,
+        valor REAL,
+        data_abertura TEXT
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ordem_entrada (
-            id SERIAL PRIMARY KEY,
-            cliente TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email TEXT,
-            tipo_equip TEXT,
-            marca TEXT,
-            equipamento TEXT,
-            ns_patrimonio TEXT,
-            acessorios TEXT,
-            condicao TEXT,
-            defeito TEXT,
-            data_entrada TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ordem_entrada (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente TEXT,
+        cpf_cnpj TEXT,
+        contato TEXT,
+        email TEXT,
+        tipo_equip TEXT,
+        marca TEXT,
+        equipamento TEXT,
+        ns_patrimonio TEXT,
+        acessorios TEXT,
+        condicao TEXT,
+        defeito TEXT,
+        data_entrada TEXT
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clientes (
-            id SERIAL PRIMARY KEY,
-            nome TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email TEXT,
-            cep TEXT,
-            rua TEXT,
-            numero TEXT,
-            bairro TEXT,
-            complemento TEXT,
-            cidade_uf TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS clientes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome TEXT,
+        cpf_cnpj TEXT,
+        contato TEXT,
+        email TEXT,
+        cep TEXT,
+        rua TEXT,
+        numero TEXT,
+        bairro TEXT,
+        complemento TEXT,
+        cidade_uf TEXT
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS servicos_cadastrados (
-            id SERIAL PRIMARY KEY,
-            nome_servico TEXT,
-            descricao TEXT,
-            valor_padrao REAL
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS servicos_cadastrados (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome_servico TEXT,
+        descricao TEXT,
+        valor_padrao REAL
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pecas_estoque (
-            id SERIAL PRIMARY KEY,
-            nome_peca TEXT,
-            codigo TEXT,
-            quantidade INTEGER,
-            valor_custo REAL,
-            valor_venda REAL
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pecas_estoque (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome_peca TEXT,
+        codigo TEXT,
+        quantidade INTEGER,
+        valor_custo REAL,
+        valor_venda REAL
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS boletos (
-            id SERIAL PRIMARY KEY,
-            cliente TEXT,
-            numero_documento TEXT,
-            valor REAL,
-            data_vencimento TEXT,
-            data_pagamento TEXT,
-            status TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS boletos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente TEXT,
+        numero_documento TEXT,
+        valor REAL,
+        data_vencimento TEXT,
+        data_pagamento TEXT,
+        status TEXT
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS notas_fiscais (
-            id SERIAL PRIMARY KEY,
-            numero_nf TEXT,
-            cliente TEXT,
-            valor REAL,
-            data_emissao TEXT,
-            status TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS notas_fiscais (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        numero_nf TEXT,
+        cliente TEXT,
+        valor REAL,
+        data_emissao TEXT,
+        status TEXT
+    )
+    ''')
 
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS despesas (
-            id SERIAL PRIMARY KEY,
-            descricao TEXT,
-            categoria TEXT,
-            valor REAL,
-            data_despesa TEXT
-        )
-        ''')
-    else:
-        # Estrutura original para SQLite (Local)
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ordens_servico (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email_end TEXT,
-            tipo_equip TEXT,
-            marca TEXT,
-            equipamento TEXT,
-            ns_patrimonio TEXT,
-            acessorios TEXT,
-            condicao TEXT,
-            status TEXT,
-            defeito TEXT,
-            diagnostico TEXT,
-            servico TEXT,
-            servicos_json TEXT,
-            peca_utilizada TEXT,
-            pecas_json TEXT,
-            valor_pecas REAL,
-            valor_servico REAL,
-            valor REAL,
-            data_abertura TEXT
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS ordem_entrada (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email TEXT,
-            tipo_equip TEXT,
-            marca TEXT,
-            equipamento TEXT,
-            ns_patrimonio TEXT,
-            acessorios TEXT,
-            condicao TEXT,
-            defeito TEXT,
-            data_entrada TEXT
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clientes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT,
-            cpf_cnpj TEXT,
-            contato TEXT,
-            email TEXT,
-            cep TEXT,
-            rua TEXT,
-            numero TEXT,
-            bairro TEXT,
-            complemento TEXT,
-            cidade_uf TEXT
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS servicos_cadastrados (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome_servico TEXT,
-            descricao TEXT,
-            valor_padrao REAL
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pecas_estoque (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome_peca TEXT,
-            codigo TEXT,
-            quantidade INTEGER,
-            valor_custo REAL,
-            valor_venda REAL
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS boletos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            cliente TEXT,
-            numero_documento TEXT,
-            valor REAL,
-            data_vencimento TEXT,
-            data_pagamento TEXT,
-            status TEXT
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS notas_fiscais (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            numero_nf TEXT,
-            cliente TEXT,
-            valor REAL,
-            data_emissao TEXT,
-            status TEXT
-        )
-        ''')
-
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS despesas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            descricao TEXT,
-            categoria TEXT,
-            valor REAL,
-            data_despesa TEXT
-        )
-        ''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS despesas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        descricao TEXT,
+        categoria TEXT,
+        valor REAL,
+        data_despesa TEXT
+    )
+    ''')
 
     conn.commit()
     conn.close()
@@ -588,12 +461,14 @@ def entrada_recepcao():
         equipamento = request.form['equipamento']
         ns_patrimonio = request.form['ns_patrimonio']
         
+        # Coleta dos checkboxes de acessórios
         acessorios_lista = request.form.getlist('acessorio_chk')
         acessorios_outro = request.form.get('acessorios_outro', '').strip()
         if acessorios_outro:
             acessorios_lista.append(acessorios_outro)
         acessorios = ", ".join(acessorios_lista)
 
+        # Coleta dos checkboxes de condição visual
         condicao_lista = request.form.getlist('condicao_chk')
         condicao_outro = request.form.get('condicao_outro', '').strip()
         if condicao_outro:
@@ -603,11 +478,7 @@ def entrada_recepcao():
         defeito = request.form['defeito']
         data_hoje = datetime.now().strftime("%Y-%m-%d")
 
-        cursor = conn.cursor()
-        cursor.execute("""INSERT INTO ordem_entrada 
-                        (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_entrada) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""" if DATABASE_URL else
-                       """INSERT INTO ordem_entrada 
+        conn.execute("""INSERT INTO ordem_entrada 
                         (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_entrada) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                    (cliente, cpf_cnpj, contato, email, tipo_equip, marca, equipamento, ns_patrimonio, acessorios, condicao, defeito, data_hoje))
@@ -616,9 +487,7 @@ def entrada_recepcao():
         flash("Entrada na recepção registrada com sucesso!", "success")
         return redirect(url_for('entrada_recepcao'))
 
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordem_entrada ORDER BY id DESC")
-    lista_entradas = cursor.fetchall()
+    lista_entradas = conn.execute("SELECT * FROM ordem_entrada ORDER BY id DESC").fetchall()
     conn.close()
 
     linhas_tabela_entradas = "".join([
@@ -678,6 +547,7 @@ def entrada_recepcao():
                 <input type="text" class="form-control" name="ns_patrimonio">
             </div>
 
+            <!-- Seção de Acessórios com Checkboxes -->
             <div class="col-md-6">
                 <label class="form-label fw-bold">Acessórios Deixados:</label>
                 <div class="p-2 border rounded bg-light mb-1">
@@ -701,6 +571,7 @@ def entrada_recepcao():
                 <input type="text" class="form-control form-control-sm" name="acessorios_outro" placeholder="Outros acessórios (opcional)">
             </div>
 
+            <!-- Seção de Condição Visual com Checkboxes -->
             <div class="col-md-12">
                 <label class="form-label fw-bold">Condição Visual do Equipamento:</label>
                 <div class="p-2 border rounded bg-light mb-1">
@@ -773,19 +644,187 @@ def entrada_recepcao():
 @app.route('/entrada/excluir/<int:id>')
 def excluir_entrada(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM ordem_entrada WHERE id = %s" if DATABASE_URL else "DELETE FROM ordem_entrada WHERE id = ?", (id,))
+    conn.execute("DELETE FROM ordem_entrada WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Registro de entrada excluído com sucesso!", "success")
     return redirect(url_for('entrada_recepcao'))
 
+@app.route('/os/nova_de_entrada/<int:id>', methods=['GET', 'POST'])
+def nova_os_de_entrada(id):
+    conn = get_db_connection()
+    entrada = conn.execute("SELECT * FROM ordem_entrada WHERE id = ?", (id,)).fetchone()
+    if not entrada:
+        flash("Entrada não encontrada.", "danger")
+        return redirect(url_for('entrada_recepcao'))
+
+    if request.method == 'POST':
+        cliente = request.form['cliente']
+        cpf_cnpj = request.form['cpf_cnpj']
+        contato = request.form['contato']
+        email_end = request.form['email_end']
+        tipo_equip = request.form['tipo_equip']
+        marca = request.form['marca']
+        equipamento = request.form['equipamento']
+        ns_patrimonio = request.form['ns_patrimonio']
+        acessorios = request.form['acessorios']
+        condicao = request.form['condicao']
+        status = request.form['status']
+        defeito = request.form['defeito']
+        diagnostico = request.form['diagnostico']
+        
+        servicos_json = request.form['servicos_json']
+        pecas_json = request.form['pecas_json']
+
+        servicos_arr = json.loads(servicos_json) if servicos_json else []
+        servico_str = ", ".join([f"{s['quantidade']}x {s['nome']} (R$ {s['valor_unitario']:.2f} un)" for s in servicos_arr])
+
+        pecas_arr = json.loads(pecas_json) if pecas_json else []
+        peca_utilizada_str = ", ".join([f"{p['quantidade']}x {p['nome']} (R$ {p['valor_unitario']:.2f} un)" for p in pecas_arr])
+
+        valor_pecas = float(request.form['valor_pecas'] or 0)
+        valor_servico = float(request.form['valor_servico'] or 0)
+        valor_total = valor_pecas + valor_servico
+        data_hoje = datetime.now().strftime("%Y-%m-%d")
+
+        cursor = conn.cursor()
+        cursor.execute("""INSERT INTO ordens_servico 
+                          (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio, 
+                           acessorios, condicao, status, defeito, diagnostico, servico, servicos_json, peca_utilizada, pecas_json, valor_pecas, valor_servico, valor, data_abertura) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
+                        acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json, valor_pecas, valor_servico, valor_total, data_hoje))
+        os_id = cursor.lastrowid
+
+        cursor.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, ?)",
+                       (cliente, f"OS-{os_id:04d}", valor_total, data_hoje, "Gerado (Aguardando Pagamento)"))
+        
+        conn.execute("DELETE FROM ordem_entrada WHERE id = ?", (id,))
+        conn.commit()
+        conn.close()
+        flash("Ordem de Serviço gerada a partir da Entrada com sucesso!", "success")
+        return redirect(url_for('index'))
+
+    lista_servicos = conn.execute("SELECT * FROM servicos_cadastrados ORDER BY nome_servico ASC").fetchall()
+    lista_pecas = conn.execute("SELECT * FROM pecas_estoque ORDER BY nome_peca ASC").fetchall()
+    conn.close()
+
+    servicos_dict_list = [{"nome_servico": s["nome_servico"], "valor_padrao": s["valor_padrao"]} for s in lista_servicos]
+    pecas_dict_list = [{"nome_peca": p["nome_peca"], "quantidade": p["quantidade"], "valor_venda": p["valor_venda"]} for p in lista_pecas]
+    
+    html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
+    <div class="header-custom">
+        <h2><i class="fas fa-file-invoice-dollar"></i> Gerar Orçamento / O.S. (Via Check-in ENT-{id:04d})</h2>
+    </div>
+    <div class="card p-4">
+        <form method="POST">
+            <input type="hidden" id="servicos_json_input" name="servicos_json">
+            <input type="hidden" id="pecas_json_input" name="pecas_json">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Cliente / Razão Social:</label>
+                    <input type="text" class="form-control" id="cliente_field" name="cliente" value="{entrada['cliente'] or ''}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">CPF / CNPJ:</label>
+                    <input type="text" class="form-control" id="cpf_cnpj_field" name="cpf_cnpj" value="{entrada['cpf_cnpj'] or ''}" onblur="consultarCnpjCompleto('cpf_cnpj_field', 'cliente_field', 'contato_field', 'email_field')">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Contato (WhatsApp):</label>
+                    <input type="text" class="form-control" id="contato_field" name="contato" value="{entrada['contato'] or ''}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">E-mail do Cliente:</label>
+                    <input type="email" class="form-control" id="email_field" name="email_end" value="{entrada['email'] or ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Tipo de Equipamento:</label>
+                    <input type="text" class="form-control" name="tipo_equip" value="{entrada['tipo_equip'] or ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Marca:</label>
+                    <input type="text" class="form-control" name="marca" value="{entrada['marca'] or ''}">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Modelo:</label>
+                    <input type="text" class="form-control" name="equipamento" value="{entrada['equipamento'] or ''}" required>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Nº de Série / Patrimônio:</label>
+                    <input type="text" class="form-control" name="ns_patrimonio" value="{entrada['ns_patrimonio'] or ''}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Acessórios:</label>
+                    <input type="text" class="form-control" name="acessorios" value="{entrada['acessorios'] or ''}">
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">Condição Visual:</label>
+                    <input type="text" class="form-control" name="condicao" value="{entrada['condicao'] or ''}">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Status Inicial:</label>
+                    <select class="form-select" name="status">
+                        <option value="Aguardando Aprovação">Aguardando Aprovação</option>
+                        <option value="Em Execução">Em Execução</option>
+                        <option value="Executado">Executado</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Defeito Relatado:</label>
+                    <textarea class="form-control" name="defeito" rows="2">{entrada['defeito'] or ''}</textarea>
+                </div>
+                <div class="col-md-12">
+                    <label class="form-label">Diagnóstico Técnico / Constatação:</label>
+                    <textarea class="form-control" name="diagnostico" rows="2"></textarea>
+                </div>
+
+                <div class="col-md-12 p-3 bg-light border rounded">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0 text-primary"><i class="fas fa-tools"></i> Serviços a Executar (Múltiplos Serviços & Quantidade):</label>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="adicionarLinhaServico()"><i class="fas fa-plus"></i> Adicionar Serviço</button>
+                    </div>
+                    <div id="container-servicos"></div>
+                </div>
+
+                <div class="col-md-12 p-3 bg-light border rounded">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-bold mb-0"><i class="fas fa-boxes"></i> Peças Utilizadas (Múltiplas Peças & Quantidade):</label>
+                        <button type="button" class="btn btn-sm btn-primary" onclick="adicionarLinhaPeca()"><i class="fas fa-plus"></i> Adicionar Peça</button>
+                    </div>
+                    <div id="container-pecas"></div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Valor Peças (R$):</label>
+                    <input type="number" step="0.01" class="form-control bg-white" id="valor_pecas_input" name="valor_pecas" value="0.00" readonly>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Valor Serviços (R$):</label>
+                    <input type="number" step="0.01" class="form-control bg-white" id="valor_servico_input" name="valor_servico" value="0.00" readonly>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label text-success fw-bold">Valor Total (R$):</label>
+                    <input type="text" class="form-control bg-light fw-bold text-success" id="valor_total_input" value="0.00" readonly>
+                </div>
+            </div>
+            <div class="mt-4">
+                <button type="submit" class="btn btn-success"><i class="fas fa-save"></i> Criar O.S. Definitiva & Gerar Boleto</button>
+                <a href="/entrada" class="btn btn-secondary">Voltar</a>
+            </div>
+        </form>
+    </div>
+    <script>
+        inicializarServicosDisponiveis({json.dumps(servicos_dict_list)});
+        inicializarPecasDisponiveis({json.dumps(pecas_dict_list)});
+        adicionarLinhaServico();
+    </script>
+    """)
+    return render_template_string(html_page, active_tab='entrada')
+
 @app.route('/')
 def index():
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordens_servico ORDER BY id DESC")
-    raw_os_list = cursor.fetchall()
+    raw_os_list = conn.execute("SELECT * FROM ordens_servico ORDER BY id DESC").fetchall()
     conn.close()
     
     os_list = []
@@ -874,9 +913,7 @@ def index():
 @app.route('/os/imprimir/<int:id>')
 def imprimir_os(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordens_servico WHERE id = %s" if DATABASE_URL else "SELECT * FROM ordens_servico WHERE id = ?", (id,))
-    os_item = cursor.fetchone()
+    os_item = conn.execute("SELECT * FROM ordens_servico WHERE id = ?", (id,)).fetchone()
     conn.close()
     if not os_item:
         flash("Ordem de Serviço não encontrada.", "danger")
@@ -1024,9 +1061,7 @@ def imprimir_os(id):
 @app.route('/os/imprimir_via_unica/<int:id>')
 def imprimir_os_via_unica(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordens_servico WHERE id = %s" if DATABASE_URL else "SELECT * FROM ordens_servico WHERE id = ?", (id,))
-    os_item = cursor.fetchone()
+    os_item = conn.execute("SELECT * FROM ordens_servico WHERE id = ?", (id,)).fetchone()
     conn.close()
     if not os_item:
         flash("Ordem de Serviço não encontrada.", "danger")
@@ -1165,9 +1200,7 @@ def imprimir_os_via_unica(id):
 @app.route('/os/enviar_email/<int:id>')
 def enviar_email_os(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordens_servico WHERE id = %s" if DATABASE_URL else "SELECT * FROM ordens_servico WHERE id = ?", (id,))
-    os_item = cursor.fetchone()
+    os_item = conn.execute("SELECT * FROM ordens_servico WHERE id = ?", (id,)).fetchone()
     conn.close()
     if not os_item or not os_item['email_end']:
         flash("E-mail do cliente não cadastrado nesta O.S.", "danger")
@@ -1227,8 +1260,7 @@ def status_rapido(id):
     novo_status = dados.get('status')
     if novo_status:
         conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE ordens_servico SET status = %s WHERE id = %s" if DATABASE_URL else "UPDATE ordens_servico SET status = ? WHERE id = ?", (novo_status, id))
+        conn.execute("UPDATE ordens_servico SET status = ? WHERE id = ?", (novo_status, id))
         conn.commit()
         conn.close()
         return jsonify({'sucesso': True})
@@ -1237,7 +1269,6 @@ def status_rapido(id):
 @app.route('/os/nova', methods=['GET', 'POST'])
 def nova_os():
     conn = get_db_connection()
-    cursor = conn.cursor()
     
     if request.method == 'POST':
         cliente = request.form['cliente']
@@ -1268,37 +1299,25 @@ def nova_os():
         valor_total = valor_pecas + valor_servico
         data_hoje = datetime.now().strftime("%Y-%m-%d")
 
-        if DATABASE_URL:
-            cursor.execute("""INSERT INTO ordens_servico 
-                              (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio, 
-                               acessorios, condicao, status, defeito, diagnostico, servico, servicos_json, peca_utilizada, pecas_json, valor_pecas, valor_servico, valor, data_abertura) 
-                              VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-                           (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
-                            acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json, valor_pecas, valor_servico, valor_total, data_hoje))
-            os_id = cursor.fetchone()['id']
-        else:
-            cursor.execute("""INSERT INTO ordens_servico 
-                              (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio, 
-                               acessorios, condicao, status, defeito, diagnostico, servico, servicos_json, peca_utilizada, pecas_json, valor_pecas, valor_servico, valor, data_abertura) 
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                           (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
-                            acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json, valor_pecas, valor_servico, valor_total, data_hoje))
-            os_id = cursor.lastrowid
+        cursor = conn.cursor()
+        cursor.execute("""INSERT INTO ordens_servico 
+                          (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio, 
+                           acessorios, condicao, status, defeito, diagnostico, servico, servicos_json, peca_utilizada, pecas_json, valor_pecas, valor_servico, valor, data_abertura) 
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
+                        acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json, valor_pecas, valor_servico, valor_total, data_hoje))
+        os_id = cursor.lastrowid
 
-        cursor.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (%s, %s, %s, %s, %s)" if DATABASE_URL else
-                       "INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, ?)",
+        cursor.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, ?)",
                        (cliente, f"OS-{os_id:04d}", valor_total, data_hoje, "Gerado (Aguardando Pagamento)"))
         conn.commit()
         conn.close()
         flash("Ordem de Serviço salva e Boleto gerado com sucesso!", "success")
         return redirect(url_for('index'))
 
-    cursor.execute("SELECT * FROM ordem_entrada ORDER BY id DESC")
-    entradas_pendentes = cursor.fetchall()
-    cursor.execute("SELECT * FROM servicos_cadastrados ORDER BY nome_servico ASC")
-    lista_servicos = cursor.fetchall()
-    cursor.execute("SELECT * FROM pecas_estoque ORDER BY nome_peca ASC")
-    lista_pecas = cursor.fetchall()
+    entradas_pendentes = conn.execute("SELECT * FROM ordem_entrada ORDER BY id DESC").fetchall()
+    lista_servicos = conn.execute("SELECT * FROM servicos_cadastrados ORDER BY nome_servico ASC").fetchall()
+    lista_pecas = conn.execute("SELECT * FROM pecas_estoque ORDER BY nome_peca ASC").fetchall()
     conn.close()
     
     options_entradas = "".join([f"<option value='{e['id']}' data-cliente='{e['cliente']}' data-doc='{e['cpf_cnpj'] or ''}' data-contato='{e['contato'] or ''}' data-email='{e['email'] or ''}' data-tipo='{e['tipo_equip']}' data-marca='{e['marca'] or ''}' data-equip='{e['equipamento']}' data-ns='{e['ns_patrimonio'] or ''}' data-acessorios='{e['acessorios'] or ''}' data-condicao='{e['condicao'] or ''}' data-defeito='{e['defeito'] or ''}'>ENT-{e['id']:04d} - {e['cliente']} ({e['equipamento']})</option>" for e in entradas_pendentes])
@@ -1427,9 +1446,7 @@ def nova_os():
 @app.route('/os/editar/<int:id>', methods=['GET', 'POST'])
 def editar_os(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM ordens_servico WHERE id = %s" if DATABASE_URL else "SELECT * FROM ordens_servico WHERE id = ?", (id,))
-    os_item = cursor.fetchone()
+    os_item = conn.execute("SELECT * FROM ordens_servico WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         cliente = request.form['cliente']
@@ -1459,13 +1476,7 @@ def editar_os(id):
         valor_servico = float(request.form['valor_servico'] or 0)
         valor_total = valor_pecas + valor_servico
 
-        cursor.execute("""UPDATE ordens_servico SET 
-                        cliente = %s, cpf_cnpj = %s, contato = %s, email_end = %s, 
-                        tipo_equip = %s, marca = %s, equipamento = %s, ns_patrimonio = %s, 
-                        acessorios = %s, condicao = %s, status = ?, 
-                        defeito = %s, diagnostico = %s, servico = %s, servicos_json = %s, peca_utilizada = %s, pecas_json = %s,
-                        valor_pecas = %s, valor_servico = %s, valor = %s WHERE id = %s""" if DATABASE_URL else
-                       """UPDATE ordens_servico SET 
+        conn.execute("""UPDATE ordens_servico SET 
                         cliente = ?, cpf_cnpj = ?, contato = ?, email_end = ?, 
                         tipo_equip = ?, marca = ?, equipamento = ?, ns_patrimonio = ?, 
                         acessorios = ?, condicao = ?, status = ?, 
@@ -1474,19 +1485,15 @@ def editar_os(id):
                    (cliente, cpf_cnpj, contato, email_end, tipo_equip, marca, equipamento, ns_patrimonio,
                     acessorios, condicao, status, defeito, diagnostico, servico_str, servicos_json, peca_utilizada_str, pecas_json,
                     valor_pecas, valor_servico, valor_total, id))
-        
-        cursor.execute("UPDATE boletos SET cliente = %s, valor = %s WHERE numero_documento = %s" if DATABASE_URL else
-                       "UPDATE boletos SET cliente = ?, valor = ? WHERE numero_documento = ?",
+        conn.execute("UPDATE boletos SET cliente = ?, valor = ? WHERE numero_documento = ?",
                    (cliente, valor_total, f"OS-{id:04d}"))
         conn.commit()
         conn.close()
         flash("Ordem de Serviço atualizada com sucesso!", "success")
         return redirect(url_for('index'))
 
-    cursor.execute("SELECT * FROM servicos_cadastrados ORDER BY nome_servico ASC")
-    lista_servicos = cursor.fetchall()
-    cursor.execute("SELECT * FROM pecas_estoque ORDER BY nome_peca ASC")
-    lista_pecas = cursor.fetchall()
+    lista_servicos = conn.execute("SELECT * FROM servicos_cadastrados ORDER BY nome_servico ASC").fetchall()
+    lista_pecas = conn.execute("SELECT * FROM pecas_estoque ORDER BY nome_peca ASC").fetchall()
     conn.close()
 
     servicos_dict_list = [{"nome_servico": s["nome_servico"], "valor_padrao": s["valor_padrao"]} for s in lista_servicos]
@@ -1637,9 +1644,8 @@ def editar_os(id):
 @app.route('/os/excluir/<int:id>')
 def excluir_os(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM boletos WHERE numero_documento = %s" if DATABASE_URL else "DELETE FROM boletos WHERE numero_documento = ?", (f"OS-{id:04d}",))
-    cursor.execute("DELETE FROM ordens_servico WHERE id = %s" if DATABASE_URL else "DELETE FROM ordens_servico WHERE id = ?", (id,))
+    conn.execute("DELETE FROM boletos WHERE numero_documento = ?", (f"OS-{id:04d}",))
+    conn.execute("DELETE FROM ordens_servico WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Ordem de Serviço excluída com sucesso!", "success")
@@ -1648,7 +1654,6 @@ def excluir_os(id):
 @app.route('/clientes', methods=['GET', 'POST'])
 def clientes():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         nome = request.form['nome']
         cpf_cnpj = request.form['cpf_cnpj']
@@ -1661,9 +1666,7 @@ def clientes():
         complemento = request.form['complemento']
         cidade_uf = request.form['cidade_uf']
 
-        cursor.execute("""INSERT INTO clientes (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf) 
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""" if DATABASE_URL else
-                       """INSERT INTO clientes (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf) 
+        conn.execute("""INSERT INTO clientes (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                    (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf))
         conn.commit()
@@ -1671,8 +1674,7 @@ def clientes():
         flash("Cliente cadastrado com sucesso!", "success")
         return redirect(url_for('clientes'))
     
-    cursor.execute("SELECT * FROM clientes ORDER BY id DESC")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM clientes ORDER BY id DESC").fetchall()
     conn.close()
 
     linhas_clientes = "".join([
@@ -1736,9 +1738,7 @@ def clientes():
 @app.route('/clientes/editar/<int:id>', methods=['GET', 'POST'])
 def editar_cliente(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM clientes WHERE id = %s" if DATABASE_URL else "SELECT * FROM clientes WHERE id = ?", (id,))
-    c = cursor.fetchone()
+    c = conn.execute("SELECT * FROM clientes WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         nome = request.form['nome']
@@ -1752,9 +1752,7 @@ def editar_cliente(id):
         complemento = request.form['complemento']
         cidade_uf = request.form['cidade_uf']
 
-        cursor.execute("""UPDATE clientes SET nome = %s, cpf_cnpj = %s, contato = %s, email = ?, 
-                        cep = %s, rua = %s, numero = %s, bairro = %s, complemento = %s, cidade_uf = %s WHERE id = %s""" if DATABASE_URL else
-                       """UPDATE clientes SET nome = ?, cpf_cnpj = ?, contato = ?, email = ?, 
+        conn.execute("""UPDATE clientes SET nome = ?, cpf_cnpj = ?, contato = ?, email = ?, 
                         cep = ?, rua = ?, numero = ?, bairro = ?, complemento = ?, cidade_uf = ? WHERE id = ?""",
                    (nome, cpf_cnpj, contato, email, cep, rua, numero, bairro, complemento, cidade_uf, id))
         conn.commit()
@@ -1793,8 +1791,7 @@ def editar_cliente(id):
 @app.route('/clientes/excluir/<int:id>')
 def excluir_cliente(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM clientes WHERE id = %s" if DATABASE_URL else "DELETE FROM clientes WHERE id = ?", (id,))
+    conn.execute("DELETE FROM clientes WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Cliente excluído com sucesso!", "success")
@@ -1803,18 +1800,16 @@ def excluir_cliente(id):
 @app.route('/servicos', methods=['GET', 'POST'])
 def servicos():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         nome = request.form['nome_servico']
         desc = request.form['descricao']
         valor = float(request.form['valor_padrao'] or 0)
-        cursor.execute("INSERT INTO servicos_cadastrados (nome_servico, descricao, valor_padrao) VALUES (%s, %s, %s)" if DATABASE_URL else "INSERT INTO servicos_cadastrados (nome_servico, descricao, valor_padrao) VALUES (?, ?, ?)", (nome, desc, valor))
+        conn.execute("INSERT INTO servicos_cadastrados (nome_servico, descricao, valor_padrao) VALUES (?, ?, ?)", (nome, desc, valor))
         conn.commit()
         conn.close()
         flash("Serviço cadastrado com sucesso!", "success")
         return redirect(url_for('servicos'))
-    cursor.execute("SELECT * FROM servicos_cadastrados")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM servicos_cadastrados").fetchall()
     conn.close()
 
     linhas_servicos = "".join([
@@ -1863,15 +1858,13 @@ def servicos():
 @app.route('/servicos/editar/<int:id>', methods=['GET', 'POST'])
 def editar_servico(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM servicos_cadastrados WHERE id = %s" if DATABASE_URL else "SELECT * FROM servicos_cadastrados WHERE id = ?", (id,))
-    s = cursor.fetchone()
+    s = conn.execute("SELECT * FROM servicos_cadastrados WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         nome = request.form['nome_servico']
         desc = request.form['descricao']
         valor = float(request.form['valor_padrao'] or 0)
-        cursor.execute("UPDATE servicos_cadastrados SET nome_servico = %s, descricao = %s, valor_padrao = %s WHERE id = %s" if DATABASE_URL else "UPDATE servicos_cadastrados SET nome_servico = ?, descricao = ?, valor_padrao = ? WHERE id = ?",
+        conn.execute("UPDATE servicos_cadastrados SET nome_servico = ?, descricao = ?, valor_padrao = ? WHERE id = ?",
                    (nome, desc, valor, id))
         conn.commit()
         conn.close()
@@ -1898,8 +1891,7 @@ def editar_servico(id):
 @app.route('/servicos/excluir/<int:id>')
 def excluir_servico(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM servicos_cadastrados WHERE id = %s" if DATABASE_URL else "DELETE FROM servicos_cadastrados WHERE id = ?", (id,))
+    conn.execute("DELETE FROM servicos_cadastrados WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Serviço excluído com sucesso!", "success")
@@ -1908,21 +1900,19 @@ def excluir_servico(id):
 @app.route('/pecas', methods=['GET', 'POST'])
 def pecas():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         nome = request.form['nome_peca']
         codigo = request.form['codigo']
         qtd = int(request.form['quantidade'] or 1)
         custo = float(request.form['valor_custo'] or 0)
         venda = float(request.form['valor_venda'] or 0)
-        cursor.execute("INSERT INTO pecas_estoque (nome_peca, codigo, quantidade, valor_custo, valor_venda) VALUES (%s, %s, %s, %s, %s)" if DATABASE_URL else "INSERT INTO pecas_estoque (nome_peca, codigo, quantidade, valor_custo, valor_venda) VALUES (?, ?, ?, ?, ?)",
+        conn.execute("INSERT INTO pecas_estoque (nome_peca, codigo, quantidade, valor_custo, valor_venda) VALUES (?, ?, ?, ?, ?)",
                    (nome, codigo, qtd, custo, venda))
         conn.commit()
         conn.close()
         flash("Peça cadastrada no estoque!", "success")
         return redirect(url_for('pecas'))
-    cursor.execute("SELECT * FROM pecas_estoque")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM pecas_estoque").fetchall()
     conn.close()
 
     linhas_pecas = "".join([
@@ -1975,9 +1965,7 @@ def pecas():
 @app.route('/pecas/editar/<int:id>', methods=['GET', 'POST'])
 def editar_peca(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM pecas_estoque WHERE id = %s" if DATABASE_URL else "SELECT * FROM pecas_estoque WHERE id = ?", (id,))
-    p = cursor.fetchone()
+    p = conn.execute("SELECT * FROM pecas_estoque WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         nome = request.form['nome_peca']
@@ -1985,7 +1973,7 @@ def editar_peca(id):
         qtd = int(request.form['quantidade'] or 1)
         custo = float(request.form['valor_custo'] or 0)
         venda = float(request.form['valor_venda'] or 0)
-        cursor.execute("UPDATE pecas_estoque SET nome_peca = %s, codigo = %s, quantidade = %s, valor_custo = %s, valor_venda = %s WHERE id = %s" if DATABASE_URL else "UPDATE pecas_estoque SET nome_peca = ?, codigo = ?, quantidade = ?, valor_custo = ?, valor_venda = ? WHERE id = ?",
+        conn.execute("UPDATE pecas_estoque SET nome_peca = ?, codigo = ?, quantidade = ?, valor_custo = ?, valor_venda = ? WHERE id = ?",
                    (nome, codigo, qtd, custo, venda, id))
         conn.commit()
         conn.close()
@@ -2014,8 +2002,7 @@ def editar_peca(id):
 @app.route('/pecas/excluir/<int:id>')
 def excluir_peca(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM pecas_estoque WHERE id = %s" if DATABASE_URL else "DELETE FROM pecas_estoque WHERE id = ?", (id,))
+    conn.execute("DELETE FROM pecas_estoque WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Peça excluída com sucesso!", "success")
@@ -2024,20 +2011,18 @@ def excluir_peca(id):
 @app.route('/boletos', methods=['GET', 'POST'])
 def boletos():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         cliente = request.form['cliente']
         doc = request.form['numero_documento']
         valor = float(request.form['valor'] or 0)
         venc = request.form['data_vencimento']
-        cursor.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (%s, %s, %s, %s, 'Gerado (Aguardando Pagamento)')" if DATABASE_URL else "INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, 'Gerado (Aguardando Pagamento)')",
+        conn.execute("INSERT INTO boletos (cliente, numero_documento, valor, data_vencimento, status) VALUES (?, ?, ?, ?, 'Gerado (Aguardando Pagamento)')",
                    (cliente, doc, valor, venc))
         conn.commit()
         conn.close()
         flash("Boleto gerado com sucesso!", "success")
         return redirect(url_for('boletos'))
-    cursor.execute("SELECT * FROM boletos")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM boletos").fetchall()
     conn.close()
 
     linhas_boletos = ""
@@ -2096,9 +2081,7 @@ def boletos():
 @app.route('/boletos/editar/<int:id>', methods=['GET', 'POST'])
 def editar_boleto(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM boletos WHERE id = %s" if DATABASE_URL else "SELECT * FROM boletos WHERE id = ?", (id,))
-    b = cursor.fetchone()
+    b = conn.execute("SELECT * FROM boletos WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         cliente = request.form['cliente']
@@ -2106,7 +2089,7 @@ def editar_boleto(id):
         valor = float(request.form['valor'] or 0)
         venc = request.form['data_vencimento']
         status = request.form['status']
-        cursor.execute("UPDATE boletos SET cliente = %s, numero_documento = %s, valor = %s, data_vencimento = %s, status = %s WHERE id = %s" if DATABASE_URL else "UPDATE boletos SET cliente = ?, numero_documento = ?, valor = ?, data_vencimento = ?, status = ? WHERE id = ?",
+        conn.execute("UPDATE boletos SET cliente = ?, numero_documento = ?, valor = ?, data_vencimento = ?, status = ? WHERE id = ?",
                    (cliente, doc, valor, venc, status, id))
         conn.commit()
         conn.close()
@@ -2145,8 +2128,7 @@ def editar_boleto(id):
 def pagar_boleto(id):
     conn = get_db_connection()
     hoje = datetime.now().strftime("%Y-%m-%d")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE boletos SET status = 'Pago', data_pagamento = %s WHERE id = %s" if DATABASE_URL else "UPDATE boletos SET status = 'Pago', data_pagamento = ? WHERE id = ?", (hoje, id))
+    conn.execute("UPDATE boletos SET status = 'Pago', data_pagamento = ? WHERE id = ?", (hoje, id))
     conn.commit()
     conn.close()
     flash("Boleto marcado como PAGO!", "success")
@@ -2155,8 +2137,7 @@ def pagar_boleto(id):
 @app.route('/boletos/excluir/<int:id>')
 def excluir_boleto(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM boletos WHERE id = %s" if DATABASE_URL else "DELETE FROM boletos WHERE id = ?", (id,))
+    conn.execute("DELETE FROM boletos WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Boleto excluído com sucesso!", "success")
@@ -2165,19 +2146,17 @@ def excluir_boleto(id):
 @app.route('/nfs', methods=['GET', 'POST'])
 def nfs():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         num = request.form['numero_nf']
         cliente = request.form['cliente']
         valor = float(request.form['valor'] or 0)
-        cursor.execute("INSERT INTO notas_fiscais (numero_nf, cliente, valor, data_emissao, status) VALUES (%s, %s, %s, %s, 'Emitida')" if DATABASE_URL else "INSERT INTO notas_fiscais (numero_nf, cliente, valor, data_emissao, status) VALUES (?, ?, ?, ?, 'Emitida')",
+        conn.execute("INSERT INTO notas_fiscais (numero_nf, cliente, valor, data_emissao, status) VALUES (?, ?, ?, ?, 'Emitida')",
                    (num, cliente, valor, datetime.now().strftime("%Y-%m-%d")))
         conn.commit()
         conn.close()
         flash("Nota Fiscal registrada!", "success")
         return redirect(url_for('nfs'))
-    cursor.execute("SELECT * FROM notas_fiscais")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM notas_fiscais").fetchall()
     conn.close()
 
     linhas_nfs = "".join([
@@ -2228,16 +2207,14 @@ def nfs():
 @app.route('/nfs/editar/<int:id>', methods=['GET', 'POST'])
 def editar_nf(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM notas_fiscais WHERE id = %s" if DATABASE_URL else "SELECT * FROM notas_fiscais WHERE id = ?", (id,))
-    n = cursor.fetchone()
+    n = conn.execute("SELECT * FROM notas_fiscais WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         num = request.form['numero_nf']
         cliente = request.form['cliente']
         valor = float(request.form['valor'] or 0)
         status = request.form['status']
-        cursor.execute("UPDATE notas_fiscais SET numero_nf = %s, cliente = %s, valor = %s, status = %s WHERE id = %s" if DATABASE_URL else "UPDATE notas_fiscais SET numero_nf = ?, cliente = ?, valor = ?, status = ? WHERE id = ?",
+        conn.execute("UPDATE notas_fiscais SET numero_nf = ?, cliente = ?, valor = ?, status = ? WHERE id = ?",
                    (num, cliente, valor, status, id))
         conn.commit()
         conn.close()
@@ -2274,8 +2251,7 @@ def editar_nf(id):
 @app.route('/nfs/excluir/<int:id>')
 def excluir_nf(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM notas_fiscais WHERE id = %s" if DATABASE_URL else "DELETE FROM notas_fiscais WHERE id = ?", (id,))
+    conn.execute("DELETE FROM notas_fiscais WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Nota Fiscal excluída com sucesso!", "success")
@@ -2284,19 +2260,17 @@ def excluir_nf(id):
 @app.route('/despesas', methods=['GET', 'POST'])
 def despesas():
     conn = get_db_connection()
-    cursor = conn.cursor()
     if request.method == 'POST':
         desc = request.form['descricao']
         cat = request.form['categoria']
         valor = float(request.form['valor'] or 0)
-        cursor.execute("INSERT INTO despesas (descricao, categoria, valor, data_despesa) VALUES (%s, %s, %s, %s)" if DATABASE_URL else "INSERT INTO despesas (descricao, categoria, valor, data_despesa) VALUES (?, ?, ?, ?)",
+        conn.execute("INSERT INTO despesas (descricao, categoria, valor, data_despesa) VALUES (?, ?, ?, ?)",
                    (desc, cat, valor, datetime.now().strftime("%Y-%m-%d")))
         conn.commit()
         conn.close()
         flash("Despesa registrada com sucesso!", "success")
         return redirect(url_for('despesas'))
-    cursor.execute("SELECT * FROM despesas ORDER BY data_despesa DESC")
-    lista = cursor.fetchall()
+    lista = conn.execute("SELECT * FROM despesas ORDER BY data_despesa DESC").fetchall()
     conn.close()
 
     linhas_despesas = "".join([
@@ -2354,15 +2328,13 @@ def despesas():
 @app.route('/despesas/editar/<int:id>', methods=['GET', 'POST'])
 def editar_despesa(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM despesas WHERE id = %s" if DATABASE_URL else "SELECT * FROM despesas WHERE id = ?", (id,))
-    d = cursor.fetchone()
+    d = conn.execute("SELECT * FROM despesas WHERE id = ?", (id,)).fetchone()
     
     if request.method == 'POST':
         desc = request.form['descricao']
         cat = request.form['categoria']
         valor = float(request.form['valor'] or 0)
-        cursor.execute("UPDATE despesas SET descricao = %s, categoria = %s, valor = %s WHERE id = %s" if DATABASE_URL else "UPDATE despesas SET descricao = ?, categoria = ?, valor = ? WHERE id = ?",
+        conn.execute("UPDATE despesas SET descricao = ?, categoria = ?, valor = ? WHERE id = ?",
                    (desc, cat, valor, id))
         conn.commit()
         conn.close()
@@ -2404,8 +2376,7 @@ def editar_despesa(id):
 @app.route('/despesas/excluir/<int:id>')
 def excluir_despesa(id):
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM despesas WHERE id = %s" if DATABASE_URL else "DELETE FROM despesas WHERE id = ?", (id,))
+    conn.execute("DELETE FROM despesas WHERE id = ?", (id,))
     conn.commit()
     conn.close()
     flash("Despesa excluída com sucesso!", "success")
@@ -2414,99 +2385,88 @@ def excluir_despesa(id):
 @app.route('/financeiro')
 def financeiro():
     conn = get_db_connection()
-    cursor = conn.cursor()
     
     data_inicio = request.args.get('data_inicio', '')
     data_fim = request.args.get('data_fim', '')
     cliente_filtro = request.args.get('cliente', '')
     servico_filtro = request.args.get('servico', '')
 
-    cursor.execute("SELECT DISTINCT cliente FROM ordens_servico WHERE cliente IS NOT NULL AND cliente != '' ORDER BY cliente")
-    clientes_disponiveis = cursor.fetchall()
-    cursor.execute("SELECT DISTINCT servico FROM ordens_servico WHERE servico IS NOT NULL AND servico != '' ORDER BY servico")
-    servicos_disponiveis = cursor.fetchall()
+    clientes_disponiveis = conn.execute("SELECT DISTINCT cliente FROM ordens_servico WHERE cliente IS NOT NULL AND cliente != '' ORDER BY cliente").fetchall()
+    servicos_disponiveis = conn.execute("SELECT DISTINCT servico FROM ordens_servico WHERE servico IS NOT NULL AND servico != '' ORDER BY servico").fetchall()
 
     query_os = "SELECT * FROM ordens_servico WHERE 1=1"
     params_os = []
-    placeholder = "%s" if DATABASE_URL else "?"
     if data_inicio:
-        query_os += f" AND data_abertura >= {placeholder}"
+        query_os += " AND data_abertura >= ?"
         params_os.append(data_inicio)
     if data_fim:
-        query_os += f" AND data_abertura <= {placeholder}"
+        query_os += " AND data_abertura <= ?"
         params_os.append(data_fim)
     if cliente_filtro:
-        query_os += f" AND cliente = {placeholder}"
+        query_os += " AND cliente = ?"
         params_os.append(cliente_filtro)
     if servico_filtro:
-        query_os += f" AND servico = {placeholder}"
+        query_os += " AND servico = ?"
         params_os.append(servico_filtro)
     
-    cursor.execute(query_os, params_os)
-    os_filtradas = cursor.fetchall()
+    os_filtradas = conn.execute(query_os, params_os).fetchall()
 
     query_esp = "SELECT * FROM despesas WHERE 1=1"
     params_esp = []
     if data_inicio:
-        query_esp += f" AND data_despesa >= {placeholder}"
+        query_esp += " AND data_despesa >= ?"
         params_esp.append(data_inicio)
     if data_fim:
-        query_esp += f" AND data_despesa <= {placeholder}"
+        query_esp += " AND data_despesa <= ?"
         params_esp.append(data_fim)
     
-    cursor.execute(query_esp, params_esp)
-    despesas_filtradas = cursor.fetchall()
+    despesas_filtradas = conn.execute(query_esp, params_esp).fetchall()
 
     query_bol = "SELECT SUM(valor) FROM boletos WHERE status = 'Pago'"
     params_bol = []
     if data_inicio:
-        query_bol += f" AND data_pagamento >= {placeholder}"
+        query_bol += " AND data_pagamento >= ?"
         params_bol.append(data_inicio)
     if data_fim:
-        query_bol += f" AND data_pagamento <= {placeholder}"
+        query_bol += " AND data_pagamento <= ?"
         params_bol.append(data_fim)
     if cliente_filtro:
-        query_bol += f" AND cliente = {placeholder}"
+        query_bol += " AND cliente = ?"
         params_bol.append(cliente_filtro)
-    cursor.execute(query_bol, params_bol)
-    tot_pago = cursor.fetchone()[0] or 0.0
+    tot_pago = conn.execute(query_bol, params_bol).fetchone()[0] or 0.0
 
     query_rec = "SELECT SUM(valor) FROM boletos WHERE status != 'Pago'"
     params_rec = []
     if cliente_filtro:
-        query_rec += f" AND cliente = {placeholder}"
+        query_rec += " AND cliente = ?"
         params_rec.append(cliente_filtro)
-    cursor.execute(query_rec, params_rec)
-    tot_receber = cursor.fetchone()[0] or 0.0
+    tot_receber = conn.execute(query_rec, params_rec).fetchone()[0] or 0.0
 
     tot_despesas = sum([d['valor'] for d in despesas_filtradas])
     saldo = tot_pago - tot_despesas
 
-    cursor.execute("""
+    ranking_clientes = conn.execute("""
         SELECT cliente, SUM(valor) as total_receita 
         FROM ordens_servico 
         WHERE cliente IS NOT NULL AND cliente != ''
         GROUP BY cliente 
         ORDER BY total_receita DESC LIMIT 5
-    """)
-    ranking_clientes = cursor.fetchall()
+    """).fetchall()
 
-    cursor.execute("""
+    ranking_servicos = conn.execute("""
         SELECT servico, SUM(valor) as total_receita, COUNT(*) as qtd
         FROM ordens_servico 
         WHERE servico IS NOT NULL AND servico != ''
         GROUP BY servico 
         ORDER BY total_receita DESC LIMIT 5
-    """)
-    ranking_servicos = cursor.fetchall()
+    """).fetchall()
 
-    cursor.execute("""
+    ranking_despesas = conn.execute("""
         SELECT categoria, SUM(valor) as total_despesa
         FROM despesas
         GROUP BY categoria
         ORDER BY total_despesa DESC LIMIT 5
-    """)
-    ranking_despesas = cursor.fetchall()
+    """).fetchall()
 
     conn.close()
 
