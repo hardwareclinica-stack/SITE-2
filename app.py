@@ -351,7 +351,7 @@ BASE_TEMPLATE = """
         function consultarCnpjCompleto(idCnpj, idNome, idContato, idEmail, idCep = null, idRua = null, idNum = null, idBairro = null, idCompl = null, idCidade = null) {
             let cnpjInput = document.getElementById(idCnpj);
             if(!cnpjInput) return;
-            let cnpj = cnpjInput.value.replace(/\\D/g, '');
+            let cnpj = cnpjInput.value.replace(/\D/g, '');
             if(cnpj.length !== 14) return;
 
             fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`)
@@ -375,7 +375,7 @@ BASE_TEMPLATE = """
         function consultarCep(idCep, idRua, idBairro, idCidade) {
             let cepInput = document.getElementById(idCep);
             if(!cepInput) return;
-            let cep = cepInput.value.replace(/\\D/g, '');
+            let cep = cepInput.value.replace(/\D/g, '');
             if(cep.length !== 8) return;
 
             fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`)
@@ -460,21 +460,8 @@ def entrada_recepcao():
         marca = request.form['marca']
         equipamento = request.form['equipamento']
         ns_patrimonio = request.form['ns_patrimonio']
-        
-        # Coleta dos checkboxes de acessórios
-        acessorios_lista = request.form.getlist('acessorio_chk')
-        acessorios_outro = request.form.get('acessorios_outro', '').strip()
-        if acessorios_outro:
-            acessorios_lista.append(acessorios_outro)
-        acessorios = ", ".join(acessorios_lista)
-
-        # Coleta dos checkboxes de condição visual
-        condicao_lista = request.form.getlist('condicao_chk')
-        condicao_outro = request.form.get('condicao_outro', '').strip()
-        if condicao_outro:
-            condicao_lista.append(condicao_outro)
-        condicao = ", ".join(condicao_lista)
-
+        acessorios = request.form['acessorios']
+        condicao = request.form['condicao']
         defeito = request.form['defeito']
         data_hoje = datetime.now().strftime("%Y-%m-%d")
 
@@ -546,63 +533,14 @@ def entrada_recepcao():
                 <label class="form-label">Nº de Série / Patrimônio:</label>
                 <input type="text" class="form-control" name="ns_patrimonio">
             </div>
-
-            <!-- Seção de Acessórios com Checkboxes -->
             <div class="col-md-6">
-                <label class="form-label fw-bold">Acessórios Deixados:</label>
-                <div class="p-2 border rounded bg-light mb-1">
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="acessorio_chk" value="Carregador" id="acess1">
-                        <label class="form-check-label" for="acess1">Carregador</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="acessorio_chk" value="Bateria" id="acess2">
-                        <label class="form-check-label" for="acess2">Bateria</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="acessorio_chk" value="Bolsa/Case" id="acess3">
-                        <label class="form-check-label" for="acess3">Bolsa / Case</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="acessorio_chk" value="Mouse" id="acess4">
-                        <label class="form-check-label" for="acess4">Mouse</label>
-                    </div>
-                </div>
-                <input type="text" class="form-control form-control-sm" name="acessorios_outro" placeholder="Outros acessórios (opcional)">
+                <label class="form-label">Acessórios Deixados:</label>
+                <input type="text" class="form-control" name="acessorios" placeholder="Ex: Carregador, Bolsa">
             </div>
-
-            <!-- Seção de Condição Visual com Checkboxes -->
             <div class="col-md-12">
-                <label class="form-label fw-bold">Condição Visual do Equipamento:</label>
-                <div class="p-2 border rounded bg-light mb-1">
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Sem arranhões" id="cond1">
-                        <label class="form-check-label" for="cond1">Sem arranhões</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Riscos na tampa" id="cond2">
-                        <label class="form-check-label" for="cond2">Riscos na tampa</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Riscos na base/teclado" id="cond3">
-                        <label class="form-check-label" for="cond3">Riscos na base/teclado</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Amassados" id="cond4">
-                        <label class="form-check-label" for="cond4">Amassados</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Parafusos faltando" id="cond5">
-                        <label class="form-check-label" for="cond5">Parafusos faltando</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" name="condicao_chk" value="Tela riscada/trincada" id="cond6">
-                        <label class="form-check-label" for="cond6">Tela riscada/trincada</label>
-                    </div>
-                </div>
-                <input type="text" class="form-control form-control-sm" name="condicao_outro" placeholder="Outras observações visuais (opcional)">
+                <label class="form-label">Condição Visual do Equipamento:</label>
+                <input type="text" class="form-control" name="condicao" placeholder="Ex: Riscos na tampa, sem parafusos traseiros">
             </div>
-
             <div class="col-md-12">
                 <label class="form-label">Defeito Relatado:</label>
                 <textarea class="form-control" name="defeito" rows="2" placeholder="Descreva o problema relatado pelo cliente..."></textarea>
@@ -2025,28 +1963,22 @@ def boletos():
     lista = conn.execute("SELECT * FROM boletos").fetchall()
     conn.close()
 
-    linhas_boletos = ""
-    for b in lista:
-        botao_pagar = f"<a href='/boletos/pagar/{b['id']}' class='btn btn-sm btn-success me-1' title='Marcar como Pago'><i class='fas fa-check'></i></a>" if b['status'] != 'Pago' else ''
-        badge_class = 'success' if b['status'] == 'Pago' else 'warning'
-        
-        linhas_boletos += f"""
-        <tr>
-            <td>{b['id']}</td>
-            <td>{b['cliente']}</td>
-            <td>{b['numero_documento']}</td>
-            <td>R$ {b['valor']:.2f}</td>
-            <td>{b['data_vencimento']}</td>
-            <td><span class='badge bg-{badge_class}'>{b['status']}</span></td>
-            <td>
-                {botao_pagar}
-                <a href='/boletos/editar/{b['id']}' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a>
-                <a href='/boletos/excluir/{b['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este boleto?');\" title='Excluir'><i class='fas fa-trash'></i></a>
-            </td>
-        </tr>
-        """
-    if not lista:
-        linhas_boletos = "<tr><td colspan='7' class='text-center text-muted'>Nenhum boleto cadastrado.</td></tr>"
+    linhas_boletos = "".join([
+        f"<tr>"
+        f"<td>{b['id']}</td>"
+        f"<td>{b['cliente']}</td>"
+        f"<td>{b['numero_documento']}</td>"
+        f"<td>R$ {b['valor']:.2f}</td>"
+        f"<td>{b['data_vencimento']}</td>"
+        f"<td><span class='badge bg-{'success' if b['status'] == 'Pago' else 'warning'}'>{b['status']}</span></td>"
+        f"<td>"
+        f"{f\"<a href='/boletos/pagar/{b['id']}' class='btn btn-sm btn-success me-1' title='Marcar como Pago'><i class='fas fa-check'></i></a>\" if b['status'] != 'Pago' else ''}"
+        f"<a href='/boletos/editar/{b['id']}' class='btn btn-sm btn-warning me-1' title='Editar'><i class='fas fa-edit'></i></a> "
+        f"<a href='/boletos/excluir/{b['id']}' class='btn btn-sm btn-danger' onclick=\"return confirm('Deseja excluir este boleto?');\" title='Excluir'><i class='fas fa-trash'></i></a>"
+        f"</td>"
+        f"</tr>"
+        for b in lista
+    ]) if lista else "<tr><td colspan='7' class='text-center text-muted'>Nenhum boleto cadastrado.</td></tr>"
 
     html_page = BASE_TEMPLATE.replace("{% block content %}{% endblock %}", f"""
     <div class="header-custom"><h2><i class="fas fa-credit-card"></i> Boletos e Cobranças</h2></div>
