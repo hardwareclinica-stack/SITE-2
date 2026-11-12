@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Clínica do Hardware - Sistema Web</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CLÍNICA DO HARDWARE • Painel Web</h1>
+            <p>Gerenciamento de Ordens de Serviço</p>
+        </header>
+
+        <div class="card">
+            <h3>Nova Ordem de Serviço</h3>
+            <form action="/adicionar" method="POST">
+                <label>Cliente:</label>
+                <input type="text" name="cliente" required placeholder="Nome do cliente">
+
+                <label>Equipamento:</label>
+                <input type="text" name="equipamento" required placeholder="Ex: Notebook Dell i5">
+
+                <label>Serviço:</label>
+                <input type="text" name="servico" required placeholder="Ex: Formatação e Limpeza">
+
+                <label>Valor (R$):</label>
+                <input type="number" step="0.01" name="valor" required placeholder="0.00">
+
+                <label>Data:</label>
+                <input type="date" name="data" required>
+
+                <button type="submit">Salvar Ordem de Serviço</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3>Ordens de Serviço Cadastradas</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Cliente</th>
+                        <th>Equipamento</th>
+                        <th>Serviço</th>
+                        <th>Valor</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in os_lista %}
+                    <tr>
+                        <td>{{ item.id }}</td>
+                        <td>{{ item.cliente }}</td>
+                        <td>{{ item.equipamento }}</td>
+                        <td>{{ item.servico }}</td>
+                        <td>R$ {{ "%.2f"|format(item.valor) }}</td>
+                        <td>{{ item.status }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" style="text-align: center; color: #777;">Nenhuma O.S. cadastrada ainda.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
